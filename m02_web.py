@@ -191,6 +191,7 @@ PAGE = """<!doctype html>
     vertical-align: top;
     caret-color: #4285F4;
   }
+  textarea::placeholder { color: #c7c9cc; }
 
   .row { margin-top: 1.6rem; }
   button, input[type="file"]::file-selector-button, input[type="file"]::-webkit-file-upload-button {
@@ -293,6 +294,7 @@ PAGE = """<!doctype html>
 <div class="row">
   <button id="camstart" class="icon-btn" title="Start Camera" aria-label="Start Camera"><span class="material-icons">videocam</span></button>
   <button id="camcapture" class="icon-btn" title="Capture &amp; Print" aria-label="Capture &amp; Print"><span class="material-icons">photo_camera</span></button>
+  <button id="camswitch" class="icon-btn" title="Switch Camera" aria-label="Switch Camera"><span class="material-icons">flip_camera_ios</span></button>
   <button id="camstop" class="icon-btn" title="Stop Camera" aria-label="Stop Camera"><span class="material-icons">videocam_off</span></button>
 </div>
 <div class="status" id="camstatus"></div>
@@ -346,12 +348,12 @@ function typePlaceholder() {
     textEl.placeholder = target.slice(0, i);
     if (i < target.length) {
       i++;
-      setTimeout(step, 90);
+      setTimeout(step, 180);
     } else {
       setTimeout(() => {
         placeholderIndex++;
         typePlaceholder();
-      }, 1800);
+      }, 4000);
     }
   };
   step();
@@ -448,18 +450,30 @@ document.getElementById('imgsend').addEventListener('click', () => {
 });
 
 let camStream = null;
+let camFacingMode = 'environment';
 const video = document.getElementById('video');
 const camStatus = document.getElementById('camstatus');
 const camStatusDefault = camStatus.textContent;
 
-document.getElementById('camstart').addEventListener('click', async () => {
+async function startCamera() {
   try {
-    camStream = await navigator.mediaDevices.getUserMedia({video: {facingMode: 'environment'}});
+    camStream = await navigator.mediaDevices.getUserMedia({video: {facingMode: camFacingMode}});
     video.srcObject = camStream;
     video.style.display = 'block';
     camStatus.textContent = 'Camera on.';
   } catch (e) {
     camStatus.textContent = 'Camera failed: ' + e.message;
+  }
+}
+
+document.getElementById('camstart').addEventListener('click', startCamera);
+
+document.getElementById('camswitch').addEventListener('click', () => {
+  camFacingMode = camFacingMode === 'environment' ? 'user' : 'environment';
+  if (camStream) {
+    camStream.getTracks().forEach((t) => t.stop());
+    camStream = null;
+    startCamera();
   }
 });
 
