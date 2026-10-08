@@ -10,10 +10,14 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import random
 import ssl
 import subprocess
 import sys
 import threading
+import urllib.error
+import urllib.parse
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs
@@ -63,6 +67,8 @@ KEY_PATH = Path(__file__).parent / "key.pem"
 
 MAX_TEXT_LENGTH = 2000
 MAX_IMAGE_BYTES = 15 * 1024 * 1024  # uploads are handled in memory only, never written to disk
+MAX_PROMPT_LENGTH = 500
+POLLINATIONS_TIMEOUT = 60  # image generation can take a while
 
 PAGE = """<!doctype html>
 <html>
@@ -85,7 +91,10 @@ PAGE = """<!doctype html>
 <section>
 <h4>Text</h4>
 <textarea id="text" placeholder="Type something to print..." autofocus></textarea>
-<div><button id="send">Print</button></div>
+<div class="row">
+  <button id="send">Print</button>
+  <button id="lucky" title="Generate an image from this text with AI and print it">I'm Feeling Lucky!</button>
+</div>
 <div class="status" id="status">Ctrl+Enter also sends</div>
 </section>
 
@@ -142,6 +151,30 @@ textEl.addEventListener('keydown', (e) => {
     sendText();
   }
 });
+
+async function sendLucky() {
+  const text = textEl.value;
+  if (!text.trim()) return;
+  statusEl.textContent = 'Generating image... (can take up to a minute)';
+  try {
+    const res = await fetch('/lucky', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({text}),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      statusEl.textContent = 'Printed.';
+      textEl.value = '';
+    } else {
+      statusEl.textContent = 'Failed: ' + (data.error || res.status);
+    }
+  } catch (e) {
+    statusEl.textContent = 'Failed: ' + e;
+  }
+}
+
+document.getElementById('lucky').addEventListener('click', sendLucky);
 
 async function sendImageBlob(blob, statusEl) {
   statusEl.textContent = 'Printing...';
@@ -220,6 +253,16 @@ def do_print(text: str) -> None:
         print_rows(rows, addr=Config.addr, density_level=Config.density)
 
 
+def generate_image(prompt: str) -> bytes:
+    """Fetch a generated image from Pollinations.ai (no API key required)."""
+    encoded = urllib.parse.quote(prompt, safe="")
+    seed = random.randint(0, 2**31 - 1)  # avoid getting a cached image for a repeated prompt
+    url = f"https://image.pollinations.ai/prompt/{encoded}?width=512&height=512&seed={seed}&nologo=true"
+    req = urllib.request.Request(url, headers={"User-Agent": "m02-thermal-printer"})
+    with urllib.request.urlopen(req, timeout=POLLINATIONS_TIMEOUT) as resp:
+        return resp.read()
+
+
 def do_print_image(data: bytes) -> None:
     """Decode, print, and discard — the image bytes never touch disk."""
     img = Image.open(io.BytesIO(data))
@@ -258,6 +301,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_print_text()
         elif self.path == "/print-image":
             self._handle_print_image()
+        elif self.path == "/lucky":
+            self._handle_lucky()
         else:
             self._send_json(404, {"error": "not found"})
 
@@ -313,6 +358,44 @@ class Handler(BaseHTTPRequestHandler):
             return
         finally:
             del raw  # drop the reference promptly; nothing here ever touches disk
+
+        self._send_json(200, {"ok": True})
+
+    def _handle_lucky(self) -> None:
+        length = int(self.headers.get("Content-Length", 0))
+        raw = self.rfile.read(length) if length else b""
+        try:
+            text = json.loads(raw.decode("utf-8")).get("text")
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._send_json(400, {"error": "invalid JSON body"})
+            return
+
+        if not text or not text.strip():
+            self._send_json(400, {"error": "missing 'text'"})
+            return
+        if len(text) > MAX_PROMPT_LENGTH:
+            self._send_json(400, {"error": f"prompt too long (max {MAX_PROMPT_LENGTH} chars)"})
+            return
+
+        try:
+            image_bytes = generate_image(text)
+        except urllib.error.HTTPError as exc:
+            self._send_json(502, {"error": f"image generation failed: HTTP {exc.code}"})
+            return
+        except (urllib.error.URLError, TimeoutError) as exc:
+            self._send_json(502, {"error": f"image generation failed: {exc}"})
+            return
+
+        try:
+            do_print_image(image_bytes)
+        except UnidentifiedImageError:
+            self._send_json(502, {"error": "image generation returned something unprintable"})
+            return
+        except Exception as exc:  # noqa: BLE001 - report any failure to the client
+            self._send_json(502, {"error": str(exc)})
+            return
+        finally:
+            del image_bytes  # drop the reference promptly; nothing here ever touches disk
 
         self._send_json(200, {"ok": True})
 
@@ -374,6 +457,7 @@ def main() -> None:
         print("  (self-signed cert — your browser will warn once, click through to continue)")
     print('  POST /print        JSON {"text": "..."}')
     print("  POST /print-image  raw image bytes (Content-Type: image/*)")
+    print('  POST /lucky        JSON {"text": "..."} — AI-generates an image from the text via Pollinations.ai and prints it')
     try:
         server.serve_forever()
     except KeyboardInterrupt:

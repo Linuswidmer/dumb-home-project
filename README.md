@@ -103,7 +103,12 @@ expected for a self-signed cert on a home server.
 Open `https://<your-laptop-ip>:8765` in a browser (or `https://localhost:8765`
 on the same machine). The page has three sections:
 
-- **Text** — type and hit Ctrl+Enter or the Print button.
+- **Text** — type and hit Ctrl+Enter or the Print button. Or click
+  **"I'm Feeling Lucky!"** to send the text as a prompt to
+  [Pollinations.ai](https://pollinations.ai) (free, no API key/signup — just
+  an HTTP request) and print the AI-generated image instead. Takes up to
+  ~30s; anonymous use is rate-limited to roughly one request per 15s and
+  images carry a small watermark.
 - **Image** — pick a file and print it.
 - **Webcam** — start the camera, capture a frame, print it.
 
@@ -128,6 +133,10 @@ curl -k -X POST https://localhost:8765/print \
 curl -k -X POST https://localhost:8765/print-image \
   -H "Content-Type: image/jpeg" \
   --data-binary @photo.jpg
+
+curl -k -X POST https://localhost:8765/lucky \
+  -H "Content-Type: application/json" \
+  -d '{"text": "a cute robot cat drinking coffee"}'
 ```
 
 (`-k` skips certificate verification for the self-signed cert — fine for
