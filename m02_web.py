@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import socket
 import ssl
 import subprocess
 import sys
@@ -23,7 +24,7 @@ from urllib.parse import parse_qs
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from m02_print import ADDR, image_to_rows, print_rows, text_to_image, wrap_text
+from m02_print import ADDR, RFCOMM_CHANNEL, image_to_rows, print_rows, text_to_image, wrap_text
 
 class ThreadingHTTPSServer(ThreadingHTTPServer):
     """ThreadingHTTPServer that TLS-wraps each connection in its own worker
@@ -250,6 +251,22 @@ PAGE = """<!doctype html>
     border-radius: 4px;
     filter: grayscale(1) contrast(1.1);
   }
+
+  .footer {
+    margin-top: 1.2rem;
+    font-size: 0.78rem;
+    color: #9aa0a6;
+    text-align: center;
+  }
+  .footer .sep { margin: 0 0.5rem; }
+  .footer .dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #c7c9cc;
+    margin-right: 0.4rem;
+  }
 </style>
 </head>
 <body>
@@ -292,16 +309,21 @@ PAGE = """<!doctype html>
 <video id="video" autoplay playsinline></video>
 <div class="actions">
 <div class="row">
-  <button id="camstart" class="icon-btn" title="Start Camera" aria-label="Start Camera"><span class="material-icons">videocam</span></button>
+  <button id="camtoggle" class="icon-btn" title="Start Camera" aria-label="Start Camera"><span class="material-icons">videocam</span></button>
   <button id="camcapture" class="icon-btn" title="Capture &amp; Print" aria-label="Capture &amp; Print"><span class="material-icons">photo_camera</span></button>
   <button id="camswitch" class="icon-btn" title="Switch Camera" aria-label="Switch Camera"><span class="material-icons">flip_camera_ios</span></button>
-  <button id="camstop" class="icon-btn" title="Stop Camera" aria-label="Stop Camera"><span class="material-icons">videocam_off</span></button>
 </div>
 <div class="status" id="camstatus"></div>
 </div>
 </div>
 
 </div>
+</div>
+
+<div class="footer">
+  <span class="dot" id="printer-dot"></span><span id="printer-label">Checking printer…</span>
+  <span class="sep">·</span>
+  Made with 📄 in Berlin
 </div>
 
 <script>
@@ -321,6 +343,22 @@ function greet() {
   document.getElementById('hello').textContent = 'https://drucken:3000';
 }
 greet();
+
+const printerDot = document.getElementById('printer-dot');
+const printerLabel = document.getElementById('printer-label');
+async function checkPrinterStatus() {
+  try {
+    const res = await fetch('/printer-status');
+    const data = await res.json();
+    printerDot.style.background = data.connected ? '#34A853' : '#EA4335';
+    printerLabel.textContent = data.connected ? 'Printer online' : 'Printer offline';
+  } catch (e) {
+    printerDot.style.background = '#EA4335';
+    printerLabel.textContent = 'Printer offline';
+  }
+}
+checkPrinterStatus();
+setInterval(checkPrinterStatus, 20000);
 
 const tabs = ['text', 'image', 'webcam'];
 function showTab(name) {
@@ -454,6 +492,15 @@ let camFacingMode = 'environment';
 const video = document.getElementById('video');
 const camStatus = document.getElementById('camstatus');
 const camStatusDefault = camStatus.textContent;
+const camToggle = document.getElementById('camtoggle');
+const camToggleIcon = camToggle.querySelector('.material-icons');
+
+function setCamToggleState(on) {
+  camToggleIcon.textContent = on ? 'videocam_off' : 'videocam';
+  const label = on ? 'Stop Camera' : 'Start Camera';
+  camToggle.title = label;
+  camToggle.setAttribute('aria-label', label);
+}
 
 async function startCamera() {
   try {
@@ -461,12 +508,25 @@ async function startCamera() {
     video.srcObject = camStream;
     video.style.display = 'block';
     camStatus.textContent = 'Camera on.';
+    setCamToggleState(true);
   } catch (e) {
     camStatus.textContent = 'Camera failed: ' + e.message;
   }
 }
 
-document.getElementById('camstart').addEventListener('click', startCamera);
+function stopCamera() {
+  if (camStream) {
+    camStream.getTracks().forEach((t) => t.stop());
+    camStream = null;
+  }
+  video.style.display = 'none';
+  camStatus.textContent = camStatusDefault;
+  setCamToggleState(false);
+}
+
+camToggle.addEventListener('click', () => {
+  if (camStream) { stopCamera(); } else { startCamera(); }
+});
 
 document.getElementById('camswitch').addEventListener('click', () => {
   camFacingMode = camFacingMode === 'environment' ? 'user' : 'environment';
@@ -484,15 +544,6 @@ document.getElementById('camcapture').addEventListener('click', () => {
   canvas.height = video.videoHeight;
   canvas.getContext('2d').drawImage(video, 0, 0);
   canvas.toBlob((blob) => sendImageBlob(blob, camStatus), 'image/jpeg', 0.9);
-});
-
-document.getElementById('camstop').addEventListener('click', () => {
-  if (camStream) {
-    camStream.getTracks().forEach((t) => t.stop());
-    camStream = null;
-  }
-  video.style.display = 'none';
-  camStatus.textContent = camStatusDefault;
 });
 </script>
 </body>
@@ -551,6 +602,24 @@ def do_print_llm_reply(prompt: str) -> None:
         print_rows(rows, addr=Config.addr, density_level=Config.density)
 
 
+PRINTER_STATUS_TIMEOUT = 8.0
+
+
+def check_printer_connected(addr: str) -> bool:
+    """Open and immediately close an RFCOMM connection — a liveness probe,
+    not an actual print. There's no persistent connection to check: each
+    print job opens its own socket and closes it when done, same as this."""
+    s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
+    s.settimeout(PRINTER_STATUS_TIMEOUT)
+    try:
+        s.connect((addr, RFCOMM_CHANNEL))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
 def do_print_image(data: bytes) -> None:
     """Decode, print, and discard — the image bytes never touch disk."""
     img = Image.open(io.BytesIO(data))
@@ -581,8 +650,23 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+        elif self.path == "/printer-status":
+            self._handle_printer_status()
         else:
             self._send_json(404, {"error": "not found"})
+
+    def _handle_printer_status(self) -> None:
+        if not _print_lock.acquire(blocking=False):
+            # A print job is actively using the connection right now — that
+            # alone proves it's reachable, and a second connect attempt
+            # would just collide with it over this printer's single link.
+            self._send_json(200, {"connected": True, "busy": True})
+            return
+        try:
+            connected = check_printer_connected(Config.addr)
+        finally:
+            _print_lock.release()
+        self._send_json(200, {"connected": connected, "busy": False})
 
     def do_POST(self) -> None:
         if self.path == "/print":

@@ -116,12 +116,18 @@ printer's own aspect ratio) with three tabs in the top-right corner:
   they tend to run longer. Anonymous Pollinations use is rate-limited
   (roughly one request per 15s) and can occasionally return a 402 under load.
 - **Image** — pick a file (with a live preview) and print it.
-- **Webcam** — start the camera (grayscale live preview), capture a frame,
-  print it.
+- **Webcam** — toggle the camera on/off (grayscale live preview), flip
+  between front/back camera, capture a frame and print it.
 
 Uploaded/captured images are decoded, dithered, printed, and discarded —
 **nothing is ever written to disk**, so there's no cleanup needed even on a
 space-constrained device like a Raspberry Pi.
+
+A footer at the bottom polls `GET /printer-status` every 20s and shows a
+green/red dot for whether the printer is currently reachable over Bluetooth.
+There's no persistent connection to check — each print job (and this check)
+opens its own RFCOMM socket and closes it when done — so this is a live
+connect-and-close probe, not a read of some cached state.
 
 HTTPS exists specifically for the webcam section: browsers only allow camera
 access (`getUserMedia`) on a *secure context* — `https://`, or
