@@ -67,6 +67,46 @@ python3 m02_print.py --density 2 "Lighter print"   # 1 (lightest) - 4 (darkest, 
 Update the `ADDR` constant at the top of `m02_print.py` to your printer's MAC
 address (or pass `--addr` each time).
 
+## GUI (`m02_gui.py`)
+
+A small always-on-top-style GTK window for printing notes on the fly. Enter
+inserts a newline like normal text editing; Ctrl+Enter sends the current text
+to the printer and clears the box.
+
+```sh
+python3 m02_gui.py
+python3 m02_gui.py --addr AA:BB:CC:DD:EE:FF --font-size 40 --density 3
+```
+
+Uses GTK3 via `python3-gi` (already present on most desktop Linux installs —
+no pip packages needed).
+
+## Web app (`m02_web.py`)
+
+A tiny local web server so other people/devices on your network can send
+print jobs too — a browser form at `/`, and a JSON endpoint at `POST /print`.
+No authentication; only run this on a trusted home/LAN network.
+
+```sh
+python3 m02_web.py
+# Serving on http://0.0.0.0:8765 ...
+```
+
+Open `http://<your-laptop-ip>:8765` in a browser (or `http://localhost:8765`
+on the same machine) — type text and hit Ctrl+Enter or the Print button.
+
+Or send a print job directly:
+
+```sh
+curl -X POST http://localhost:8765/print \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello from curl!"}'
+```
+
+Options: `--host` (default `0.0.0.0`), `--port` (default `8765`), plus the
+same `--addr` / `--font-size` / `--density` flags as the other scripts. Print
+jobs are serialized (one at a time) even if multiple requests arrive at once.
+
 ## Notes
 
 - Text is rendered with DejaVu Sans at a fixed threshold (no dithering —
