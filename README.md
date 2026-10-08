@@ -107,6 +107,66 @@ Options: `--host` (default `0.0.0.0`), `--port` (default `8765`), plus the
 same `--addr` / `--font-size` / `--density` flags as the other scripts. Print
 jobs are serialized (one at a time) even if multiple requests arrive at once.
 
+## Running as a service (e.g. on a Raspberry Pi)
+
+```sh
+sudo tee /etc/systemd/system/m02-printer.service > /dev/null <<'EOF'
+[Unit]
+Description=M02 thermal printer web app
+After=bluetooth.target network.target
+
+[Service]
+Type=simple
+User=<your-user>
+WorkingDirectory=/home/<your-user>/m02-thermal-printer
+ExecStart=/usr/bin/python3 m02_web.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now m02-printer
+```
+
+If the Bluetooth adapter shows `NotReady` when scanning, it's probably
+rfkill-soft-blocked: `sudo rfkill unblock bluetooth && bluetoothctl power on`.
+
+## Deploying updates
+
+To pull and apply changes without re-copying files by hand, clone the repo
+over SSH using a read-only deploy key:
+
+```sh
+ssh-keygen -t ed25519 -C "<host> deploy key for m02-thermal-printer" -f ~/.ssh/m02_deploy_key -N ""
+cat ~/.ssh/m02_deploy_key.pub   # add as a read-only Deploy Key on the GitHub repo
+```
+
+```sh
+# ~/.ssh/config
+Host github.com-m02deploy
+    HostName github.com
+    User git
+    IdentityFile ~/.ssh/m02_deploy_key
+    IdentitiesOnly yes
+```
+
+```sh
+git clone git@github.com-m02deploy:Linuswidmer/m02-thermal-printer.git ~/m02-thermal-printer
+```
+
+After pushing changes from your dev machine, apply them on the server with:
+
+```sh
+./deploy.sh
+```
+
+which runs `git pull` and restarts the `m02-printer` service. (Requires
+passwordless `sudo systemctl restart m02-printer` for the deploying user, or
+run it with `sudo ./deploy.sh` / enter your password when prompted.)
+
 ## Notes
 
 - Text is rendered with DejaVu Sans at a fixed threshold (no dithering —
