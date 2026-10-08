@@ -93,8 +93,8 @@ def image_to_rows(img: Image.Image, *, top_padding: int = 4, dither: bool = True
     if dither:
         # Thermal dithering tends to print lighter than the source image —
         # darken midtones so grays come out as recognizably gray, not faint.
-        img = ImageEnhance.Contrast(img).enhance(1.4)
-        img = ImageEnhance.Brightness(img).enhance(0.8)
+        img = ImageEnhance.Contrast(img).enhance(1.7)
+        img = ImageEnhance.Brightness(img).enhance(0.7)
     bw = img.convert("1", dither=Image.FLOYDSTEINBERG if dither else Image.NONE)
 
     rows: list[bytes] = []

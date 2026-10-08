@@ -93,7 +93,23 @@ python3 m02_web.py
 ```
 
 Open `http://<your-laptop-ip>:8765` in a browser (or `http://localhost:8765`
-on the same machine) — type text and hit Ctrl+Enter or the Print button.
+on the same machine). The page has three sections:
+
+- **Text** — type and hit Ctrl+Enter or the Print button.
+- **Image** — pick a file and print it.
+- **Webcam** — start the camera, capture a frame, print it.
+
+Uploaded/captured images are decoded, dithered, printed, and discarded —
+**nothing is ever written to disk**, so there's no cleanup needed even on a
+space-constrained device like a Raspberry Pi.
+
+> **Webcam caveat**: browsers only allow camera access (`getUserMedia`) on a
+> *secure context* — `https://`, or `http://localhost`/`127.0.0.1`. If you're
+> opening this page from another device over plain `http://<lan-ip>:8765`,
+> the camera button will fail (the page will say so). Text and image-upload
+> work fine over plain HTTP regardless; only live webcam capture needs HTTPS.
+> If you want this to work when accessed by other devices over the LAN,
+> you'll need to run the server behind a self-signed TLS certificate.
 
 Or send a print job directly:
 
@@ -101,11 +117,16 @@ Or send a print job directly:
 curl -X POST http://localhost:8765/print \
   -H "Content-Type: application/json" \
   -d '{"text": "Hello from curl!"}'
+
+curl -X POST http://localhost:8765/print-image \
+  -H "Content-Type: image/jpeg" \
+  --data-binary @photo.jpg
 ```
 
 Options: `--host` (default `0.0.0.0`), `--port` (default `8765`), plus the
 same `--addr` / `--font-size` / `--density` flags as the other scripts. Print
 jobs are serialized (one at a time) even if multiple requests arrive at once.
+Image uploads are capped at 15MB.
 
 ## Running as a service (e.g. on a Raspberry Pi)
 

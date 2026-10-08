@@ -8,14 +8,18 @@ authentication — intended for a trusted home/LAN network only.
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs
 
+from PIL import Image, ImageOps, UnidentifiedImageError
+
 from m02_print import ADDR, image_to_rows, print_rows, text_to_image
 
 MAX_TEXT_LENGTH = 2000
+MAX_IMAGE_BYTES = 15 * 1024 * 1024  # uploads are handled in memory only, never written to disk
 
 PAGE = """<!doctype html>
 <html>
@@ -26,19 +30,47 @@ PAGE = """<!doctype html>
   body { font-family: sans-serif; max-width: 480px; margin: 2rem auto; padding: 0 1rem; }
   textarea { width: 100%; height: 8rem; font-size: 1rem; box-sizing: border-box; }
   button { margin-top: 0.5rem; padding: 0.5rem 1rem; font-size: 1rem; }
-  #status { margin-top: 0.5rem; color: #555; }
+  section { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #ddd; }
+  .status { margin-top: 0.5rem; color: #555; }
+  video { width: 100%; margin-top: 0.5rem; display: none; background: #000; }
+  .row button { margin-right: 0.5rem; }
 </style>
 </head>
 <body>
 <h3>M02 Printer</h3>
+
+<section>
+<h4>Text</h4>
 <textarea id="text" placeholder="Type something to print..." autofocus></textarea>
 <div><button id="send">Print</button></div>
-<div id="status">Ctrl+Enter also sends</div>
+<div class="status" id="status">Ctrl+Enter also sends</div>
+</section>
+
+<section>
+<h4>Image</h4>
+<div><input type="file" id="imgfile" accept="image/*"></div>
+<div><button id="imgsend">Print Image</button></div>
+<div class="status" id="imgstatus"></div>
+</section>
+
+<section>
+<h4>Webcam</h4>
+<video id="video" autoplay playsinline></video>
+<div class="row">
+  <button id="camstart">Start Camera</button>
+  <button id="camcapture">Capture &amp; Print</button>
+  <button id="camstop">Stop Camera</button>
+</div>
+<div class="status" id="camstatus">
+  Needs https:// or localhost — browsers block camera access on plain http over the network.
+</div>
+</section>
+
 <script>
 const textEl = document.getElementById('text');
 const statusEl = document.getElementById('status');
 
-async function send() {
+async function sendText() {
   const text = textEl.value;
   if (!text.trim()) return;
   statusEl.textContent = 'Printing...';
@@ -60,12 +92,69 @@ async function send() {
   }
 }
 
-document.getElementById('send').addEventListener('click', send);
+document.getElementById('send').addEventListener('click', sendText);
 textEl.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
     e.preventDefault();
-    send();
+    sendText();
   }
+});
+
+async function sendImageBlob(blob, statusEl) {
+  statusEl.textContent = 'Printing...';
+  try {
+    const res = await fetch('/print-image', {
+      method: 'POST',
+      headers: {'Content-Type': blob.type || 'application/octet-stream'},
+      body: blob,
+    });
+    const data = await res.json();
+    statusEl.textContent = res.ok ? 'Printed.' : ('Failed: ' + (data.error || res.status));
+  } catch (e) {
+    statusEl.textContent = 'Failed: ' + e;
+  }
+}
+
+const imgFile = document.getElementById('imgfile');
+const imgStatus = document.getElementById('imgstatus');
+document.getElementById('imgsend').addEventListener('click', () => {
+  const f = imgFile.files[0];
+  if (!f) { imgStatus.textContent = 'Pick a file first.'; return; }
+  sendImageBlob(f, imgStatus);
+});
+
+let camStream = null;
+const video = document.getElementById('video');
+const camStatus = document.getElementById('camstatus');
+const camStatusDefault = camStatus.textContent;
+
+document.getElementById('camstart').addEventListener('click', async () => {
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({video: {facingMode: 'environment'}});
+    video.srcObject = camStream;
+    video.style.display = 'block';
+    camStatus.textContent = 'Camera on.';
+  } catch (e) {
+    camStatus.textContent = 'Camera failed: ' + e.message + ' (' + camStatusDefault + ')';
+  }
+});
+
+document.getElementById('camcapture').addEventListener('click', () => {
+  if (!camStream) { camStatus.textContent = 'Start the camera first.'; return; }
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  canvas.toBlob((blob) => sendImageBlob(blob, camStatus), 'image/jpeg', 0.9);
+});
+
+document.getElementById('camstop').addEventListener('click', () => {
+  if (camStream) {
+    camStream.getTracks().forEach((t) => t.stop());
+    camStream = null;
+  }
+  video.style.display = 'none';
+  camStatus.textContent = camStatusDefault;
 });
 </script>
 </body>
@@ -84,6 +173,16 @@ class Config:
 def do_print(text: str) -> None:
     img = text_to_image(text, font_size=Config.font_size)
     rows = image_to_rows(img, dither=False)
+    with _print_lock:
+        print_rows(rows, addr=Config.addr, density_level=Config.density)
+
+
+def do_print_image(data: bytes) -> None:
+    """Decode, print, and discard — the image bytes never touch disk."""
+    img = Image.open(io.BytesIO(data))
+    img.load()  # force decode now, while the BytesIO backing it is still alive
+    img = ImageOps.exif_transpose(img)  # phone/webcam photos often carry rotation metadata
+    rows = image_to_rows(img, dither=True)
     with _print_lock:
         print_rows(rows, addr=Config.addr, density_level=Config.density)
 
@@ -112,10 +211,14 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(404, {"error": "not found"})
 
     def do_POST(self) -> None:
-        if self.path != "/print":
+        if self.path == "/print":
+            self._handle_print_text()
+        elif self.path == "/print-image":
+            self._handle_print_image()
+        else:
             self._send_json(404, {"error": "not found"})
-            return
 
+    def _handle_print_text(self) -> None:
         length = int(self.headers.get("Content-Length", 0))
         raw = self.rfile.read(length) if length else b""
         content_type = self.headers.get("Content-Type", "")
@@ -146,6 +249,30 @@ class Handler(BaseHTTPRequestHandler):
 
         self._send_json(200, {"ok": True})
 
+    def _handle_print_image(self) -> None:
+        length = int(self.headers.get("Content-Length", 0))
+        if length <= 0:
+            self._send_json(400, {"error": "missing image body"})
+            return
+        if length > MAX_IMAGE_BYTES:
+            self._send_json(400, {"error": f"image too large (max {MAX_IMAGE_BYTES // (1024 * 1024)}MB)"})
+            return
+
+        raw = self.rfile.read(length)
+
+        try:
+            do_print_image(raw)
+        except UnidentifiedImageError:
+            self._send_json(400, {"error": "not a recognizable image"})
+            return
+        except Exception as exc:  # noqa: BLE001 - report any failure to the client
+            self._send_json(502, {"error": str(exc)})
+            return
+        finally:
+            del raw  # drop the reference promptly; nothing here ever touches disk
+
+        self._send_json(200, {"ok": True})
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Local web app for the M02 thermal printer")
@@ -161,7 +288,9 @@ def main() -> None:
     Config.density = args.density
 
     server = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f"Serving on http://{args.host}:{args.port}  (POST /print with JSON {{\"text\": \"...\"}})")
+    print(f"Serving on http://{args.host}:{args.port}")
+    print('  POST /print        JSON {"text": "..."}')
+    print("  POST /print-image  raw image bytes (Content-Type: image/*)")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
