@@ -89,10 +89,18 @@ No authentication; only run this on a trusted home/LAN network.
 
 ```sh
 python3 m02_web.py
-# Serving on http://0.0.0.0:8765 ...
+# No TLS cert found, generating a self-signed one at .../cert.pem ...
+# Serving on https://0.0.0.0:8765
+#   (self-signed cert — your browser will warn once, click through to continue)
 ```
 
-Open `http://<your-laptop-ip>:8765` in a browser (or `http://localhost:8765`
+On first run it generates its own self-signed TLS certificate (via
+`openssl`, into `cert.pem`/`key.pem` next to the script — gitignored, never
+committed, one per host) and serves HTTPS by default. Your browser will show
+a "not private" warning the first time — click Advanced → Proceed, it's
+expected for a self-signed cert on a home server.
+
+Open `https://<your-laptop-ip>:8765` in a browser (or `https://localhost:8765`
 on the same machine). The page has three sections:
 
 - **Text** — type and hit Ctrl+Enter or the Print button.
@@ -103,28 +111,32 @@ Uploaded/captured images are decoded, dithered, printed, and discarded —
 **nothing is ever written to disk**, so there's no cleanup needed even on a
 space-constrained device like a Raspberry Pi.
 
-> **Webcam caveat**: browsers only allow camera access (`getUserMedia`) on a
-> *secure context* — `https://`, or `http://localhost`/`127.0.0.1`. If you're
-> opening this page from another device over plain `http://<lan-ip>:8765`,
-> the camera button will fail (the page will say so). Text and image-upload
-> work fine over plain HTTP regardless; only live webcam capture needs HTTPS.
-> If you want this to work when accessed by other devices over the LAN,
-> you'll need to run the server behind a self-signed TLS certificate.
+HTTPS exists specifically for the webcam section: browsers only allow camera
+access (`getUserMedia`) on a *secure context* — `https://`, or
+`http://localhost`/`127.0.0.1`. Over plain HTTP from another device
+(`http://<lan-ip>:8765`), the camera button would fail. Pass `--http` to
+opt back into plain HTTP (e.g. for quick local testing) if you don't need
+the webcam feature from other devices.
 
 Or send a print job directly:
 
 ```sh
-curl -X POST http://localhost:8765/print \
+curl -k -X POST https://localhost:8765/print \
   -H "Content-Type: application/json" \
   -d '{"text": "Hello from curl!"}'
 
-curl -X POST http://localhost:8765/print-image \
+curl -k -X POST https://localhost:8765/print-image \
   -H "Content-Type: image/jpeg" \
   --data-binary @photo.jpg
 ```
 
-Options: `--host` (default `0.0.0.0`), `--port` (default `8765`), plus the
-same `--addr` / `--font-size` / `--density` flags as the other scripts. Print
+(`-k` skips certificate verification for the self-signed cert — fine for
+local/LAN use with `curl`; a browser just needs a one-time click-through
+instead.)
+
+Options: `--host` (default `0.0.0.0`), `--port` (default `8765`), `--http`
+(serve plain HTTP instead), plus the same `--addr` / `--font-size` /
+`--density` flags as the other scripts. Print
 jobs are serialized (one at a time) even if multiple requests arrive at once.
 Image uploads are capped at 15MB.
 

@@ -10,13 +10,56 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import ssl
+import subprocess
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from m02_print import ADDR, image_to_rows, print_rows, text_to_image
+
+class ThreadingHTTPSServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer that TLS-wraps each connection in its own worker
+    thread, not the shared listening socket.
+
+    Wrapping the listening socket directly (the usual one-liner recipe)
+    makes socketserver's single-threaded accept loop perform the TLS
+    handshake synchronously for every connection — so one slow or stuck
+    client (e.g. a browser retrying a cert prompt) blocks every other
+    client, including unrelated requests, until that handshake times out.
+    """
+
+    def __init__(self, addr, handler, certfile: str, keyfile: str):
+        super().__init__(addr, handler)
+        self.ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        self.ssl_context.load_cert_chain(certfile=certfile, keyfile=keyfile)
+
+    def process_request(self, request, client_address):
+        thread = threading.Thread(
+            target=self._handshake_and_process, args=(request, client_address), daemon=self.daemon_threads
+        )
+        thread.start()
+
+    def _handshake_and_process(self, request, client_address) -> None:
+        try:
+            tls_request = self.ssl_context.wrap_socket(request, server_side=True)
+        except (ssl.SSLError, OSError):
+            request.close()
+            return
+        try:
+            self.finish_request(tls_request, client_address)
+        except Exception:
+            self.handle_error(tls_request, client_address)
+        finally:
+            self.shutdown_request(tls_request)
+
+
+CERT_PATH = Path(__file__).parent / "cert.pem"
+KEY_PATH = Path(__file__).parent / "key.pem"
 
 MAX_TEXT_LENGTH = 2000
 MAX_IMAGE_BYTES = 15 * 1024 * 1024  # uploads are handled in memory only, never written to disk
@@ -274,6 +317,36 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(200, {"ok": True})
 
 
+def ensure_self_signed_cert(cert_path: Path, key_path: Path) -> None:
+    """Generate a self-signed cert/key pair if one doesn't already exist.
+
+    Browsers only allow camera access (getUserMedia) on a secure context —
+    https, or http on localhost. A self-signed cert is enough to satisfy
+    that: the browser just needs the scheme to be https, not a CA-trusted
+    certificate. Each host generates (and keeps) its own cert/key; neither
+    is ever committed to the repo.
+    """
+    if cert_path.exists() and key_path.exists():
+        return
+    print(f"No TLS cert found, generating a self-signed one at {cert_path} ...")
+    try:
+        subprocess.run(
+            [
+                "openssl", "req", "-x509", "-newkey", "rsa:2048",
+                "-keyout", str(key_path), "-out", str(cert_path),
+                "-days", "3650", "-nodes",
+                "-subj", "/CN=m02-printer",
+            ],
+            check=True,
+            capture_output=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        detail = exc.stderr.decode() if isinstance(exc, subprocess.CalledProcessError) else str(exc)
+        print(f"Failed to generate a self-signed cert (is openssl installed?): {detail}", file=sys.stderr)
+        raise SystemExit(1)
+    key_path.chmod(0o600)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Local web app for the M02 thermal printer")
     parser.add_argument("--host", default="0.0.0.0", help="Bind address (default: 0.0.0.0, reachable on your LAN)")
@@ -281,14 +354,24 @@ def main() -> None:
     parser.add_argument("--addr", default=ADDR, help="Printer Bluetooth MAC address")
     parser.add_argument("--font-size", type=int, default=32)
     parser.add_argument("--density", type=int, default=4, choices=(1, 2, 3, 4))
+    parser.add_argument("--http", action="store_true", help="Serve plain HTTP instead of self-signed HTTPS (disables webcam capture from other devices)")
     args = parser.parse_args()
 
     Config.addr = args.addr
     Config.font_size = args.font_size
     Config.density = args.density
 
-    server = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f"Serving on http://{args.host}:{args.port}")
+    scheme = "http"
+    if args.http:
+        server = ThreadingHTTPServer((args.host, args.port), Handler)
+    else:
+        ensure_self_signed_cert(CERT_PATH, KEY_PATH)
+        server = ThreadingHTTPSServer((args.host, args.port), Handler, certfile=str(CERT_PATH), keyfile=str(KEY_PATH))
+        scheme = "https"
+
+    print(f"Serving on {scheme}://{args.host}:{args.port}")
+    if scheme == "https":
+        print("  (self-signed cert — your browser will warn once, click through to continue)")
     print('  POST /print        JSON {"text": "..."}')
     print("  POST /print-image  raw image bytes (Content-Type: image/*)")
     try:
