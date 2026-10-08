@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import io
 import json
-import random
 import ssl
 import subprocess
 import sys
@@ -24,7 +23,7 @@ from urllib.parse import parse_qs
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from m02_print import ADDR, image_to_rows, print_rows, text_to_image
+from m02_print import ADDR, image_to_rows, print_rows, text_to_image, wrap_text
 
 class ThreadingHTTPSServer(ThreadingHTTPServer):
     """ThreadingHTTPServer that TLS-wraps each connection in its own worker
@@ -74,53 +73,290 @@ PAGE = """<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>M02 Printer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Special+Elite&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 <style>
-  body { font-family: sans-serif; max-width: 480px; margin: 2rem auto; padding: 0 1rem; }
-  textarea { width: 100%; height: 8rem; font-size: 1rem; box-sizing: border-box; }
-  button { margin-top: 0.5rem; padding: 0.5rem 1rem; font-size: 1rem; }
-  section { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #ddd; }
-  .status { margin-top: 0.5rem; color: #555; }
-  video { width: 100%; margin-top: 0.5rem; display: none; background: #000; }
-  .row button { margin-right: 0.5rem; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: arial, sans-serif;
+    background: #f1f3f4;
+    color: #000;
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 1rem;
+  }
+
+  .app {
+    width: 440px;
+    max-width: 92vw;
+    height: 80vh;
+    max-height: 820px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .greeting {
+    margin-bottom: 1.2rem;
+    overflow: hidden; /* contain the floated .hello */
+  }
+  .greeting .hello {
+    float: left;
+    font-family: "Courier New", monospace;
+    font-size: 1.8rem;
+    font-weight: normal;
+    color: #202124;
+  }
+  /* .proverb: cut for now, coming back to it later — font link for
+     Special Elite stays loaded in <head> in the meantime. */
+
+  .tabbar {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.3rem;
+  }
+  .tab {
+    padding: 0.6rem 1.3rem;
+    font-size: 0.85rem;
+    color: #5f6368;
+    background: #e3e5e8;
+    border: 1px solid #c9ccd1;
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+  }
+  .tab:hover { background: #ebedef; color: #202124; }
+  .tab.active {
+    background: #fff;
+    color: #202124;
+    font-weight: bold;
+    z-index: 1;
+    margin-bottom: -1px;
+    padding-bottom: calc(0.6rem + 1px);
+  }
+
+  .playground {
+    background: #fff;
+    border: 1px solid #c9ccd1;
+    border-radius: 8px 0 8px 8px;
+    padding: 2.5rem 2rem;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .panel {
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .panel[hidden] { display: none; }
+
+  .actions {
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  textarea {
+    width: 320px;
+    max-width: 100%;
+    flex: 1;
+    min-height: 0;
+    padding: 0;
+    font-size: 1.1rem;
+    font-family: arial, sans-serif;
+    background: transparent;
+    border: none;
+    outline: none;
+    box-shadow: none;
+    resize: none;
+    overflow: hidden;
+    vertical-align: top;
+    caret-color: #4285F4;
+  }
+
+  .row { margin-top: 1.6rem; }
+  button, input[type="file"]::file-selector-button, input[type="file"]::-webkit-file-upload-button {
+    background-color: #f2f2f2;
+    border: 1px solid #f2f2f2;
+    border-radius: 4px;
+    color: #3c4043;
+    font-family: arial, sans-serif;
+    font-size: 0.85rem;
+    padding: 0.55rem 1rem;
+    margin: 0 0.3rem;
+    cursor: pointer;
+  }
+  button:hover,
+  input[type="file"]:hover::file-selector-button,
+  input[type="file"]:hover::-webkit-file-upload-button {
+    border-color: #dadce0;
+    box-shadow: 0 1px 1px rgba(0,0,0,0.1);
+    color: #202124;
+  }
+
+  .icon-btn {
+    width: 56px;
+    height: 56px;
+    padding: 0;
+    border-radius: 50%;
+  }
+  .icon-btn .material-icons { font-size: 26px; line-height: 1; }
+
+  .status {
+    margin-top: 1.2rem;
+    color: #70757a;
+    font-size: 0.8rem;
+    min-height: 1.2em;
+    text-align: center;
+  }
+
+  input[type="file"] { font-size: 0.85rem; color: #5f6368; }
+
+  #imgpreview {
+    display: none;
+    max-width: 100%;
+    max-height: 50vh;
+    margin-top: 1.2rem;
+    border-radius: 4px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  }
+
+  video {
+    width: 100%;
+    max-height: 50vh;
+    object-fit: cover;
+    margin-top: 0;
+    display: none;
+    background: #000;
+    border-radius: 4px;
+    filter: grayscale(1) contrast(1.1);
+  }
 </style>
 </head>
 <body>
-<h3>M02 Printer</h3>
 
-<section>
-<h4>Text</h4>
-<textarea id="text" placeholder="Type something to print..." autofocus></textarea>
-<div class="row">
-  <button id="send">Print</button>
-  <button id="lucky" title="Generate an image from this text with AI and print it">I'm Feeling Lucky!</button>
+<div class="app">
+<div class="greeting">
+  <div class="hello" id="hello"></div>
 </div>
-<div class="status" id="status">Ctrl+Enter also sends</div>
-</section>
+<div class="tabbar">
+  <div class="tab active" id="tab-text">Text</div>
+  <div class="tab" id="tab-image">Image</div>
+  <div class="tab" id="tab-webcam">Webcam</div>
+</div>
 
-<section>
-<h4>Image</h4>
+<div class="playground">
+
+<div class="panel" id="panel-text">
+<textarea id="text" autofocus rows="1"></textarea>
+<div class="actions">
+<div class="row">
+  <button id="send" class="icon-btn" title="Print" aria-label="Print"><span class="material-icons">print</span></button>
+  <button id="lucky" class="icon-btn" title="I'm Feeling Lucky! (ask an AI, print the reply)" aria-label="I'm Feeling Lucky!"><span class="material-icons">casino</span></button>
+</div>
+<div class="status" id="status"></div>
+</div>
+</div>
+
+<div class="panel" id="panel-image" hidden>
 <div><input type="file" id="imgfile" accept="image/*"></div>
-<div><button id="imgsend">Print Image</button></div>
-<div class="status" id="imgstatus"></div>
-</section>
-
-<section>
-<h4>Webcam</h4>
-<video id="video" autoplay playsinline></video>
+<img id="imgpreview" alt="">
+<div class="actions">
 <div class="row">
-  <button id="camstart">Start Camera</button>
-  <button id="camcapture">Capture &amp; Print</button>
-  <button id="camstop">Stop Camera</button>
+  <button id="imgsend" class="icon-btn" title="Print Image" aria-label="Print Image"><span class="material-icons">print</span></button>
 </div>
-<div class="status" id="camstatus">
-  Needs https:// or localhost — browsers block camera access on plain http over the network.
+<div class="status" id="imgstatus"></div>
 </div>
-</section>
+</div>
+
+<div class="panel" id="panel-webcam" hidden>
+<video id="video" autoplay playsinline></video>
+<div class="actions">
+<div class="row">
+  <button id="camstart" class="icon-btn" title="Start Camera" aria-label="Start Camera"><span class="material-icons">videocam</span></button>
+  <button id="camcapture" class="icon-btn" title="Capture &amp; Print" aria-label="Capture &amp; Print"><span class="material-icons">photo_camera</span></button>
+  <button id="camstop" class="icon-btn" title="Stop Camera" aria-label="Stop Camera"><span class="material-icons">videocam_off</span></button>
+</div>
+<div class="status" id="camstatus"></div>
+</div>
+</div>
+
+</div>
+</div>
 
 <script>
+// Parked for later — a rotating proverb line under the heading, set in italic
+// Special Elite (already loaded in <head>). Re-add a #proverb element and
+// call PROVERBS[Math.floor(Math.random() * PROVERBS.length)] to bring it back.
+const PROVERBS = [
+  "A receipt in hand is worth two in the cloud.",
+  "He who prints twice, measures never.",
+  "The thermal head forgives, but the paper roll remembers.",
+  "Ink is temporary; thermal paper is... also temporary, actually.",
+  "Good things come to those who wait ~24 seconds for Pollinations.ai.",
+  "Feed the printer before it feeds on your patience.",
+];
+
+function greet() {
+  document.getElementById('hello').textContent = 'https://drucken:3000';
+}
+greet();
+
+const tabs = ['text', 'image', 'webcam'];
+function showTab(name) {
+  for (const t of tabs) {
+    document.getElementById('panel-' + t).hidden = (t !== name);
+    document.getElementById('tab-' + t).classList.toggle('active', t === name);
+  }
+}
+for (const t of tabs) {
+  document.getElementById('tab-' + t).addEventListener('click', () => showTab(t));
+}
+
 const textEl = document.getElementById('text');
 const statusEl = document.getElementById('status');
+
+// Typewriter placeholder: cycles example prompts into the empty textarea's
+// placeholder, one character at a time. Swap this list for whatever you like.
+const PLACEHOLDER_EXAMPLES = ["GuMo :)", "Vegetarisches Mittagessen Rezept"];
+let placeholderIndex = 0;
+function typePlaceholder() {
+  const target = PLACEHOLDER_EXAMPLES[placeholderIndex % PLACEHOLDER_EXAMPLES.length];
+  let i = 0;
+  const step = () => {
+    if (textEl.value) { setTimeout(step, 400); return; } // wait out any typed text before continuing
+    textEl.placeholder = target.slice(0, i);
+    if (i < target.length) {
+      i++;
+      setTimeout(step, 90);
+    } else {
+      setTimeout(() => {
+        placeholderIndex++;
+        typePlaceholder();
+      }, 1800);
+    }
+  };
+  step();
+}
+typePlaceholder();
 
 async function sendText() {
   const text = textEl.value;
@@ -155,7 +391,7 @@ textEl.addEventListener('keydown', (e) => {
 async function sendLucky() {
   const text = textEl.value;
   if (!text.trim()) return;
-  statusEl.textContent = 'Generating image... (can take up to a minute)';
+  statusEl.textContent = 'Asking the AI...';
   try {
     const res = await fetch('/lucky', {
       method: 'POST',
@@ -193,6 +429,18 @@ async function sendImageBlob(blob, statusEl) {
 
 const imgFile = document.getElementById('imgfile');
 const imgStatus = document.getElementById('imgstatus');
+const imgPreview = document.getElementById('imgpreview');
+let imgPreviewUrl = null;
+
+imgFile.addEventListener('change', () => {
+  if (imgPreviewUrl) URL.revokeObjectURL(imgPreviewUrl);
+  const f = imgFile.files[0];
+  if (!f) { imgPreview.style.display = 'none'; return; }
+  imgPreviewUrl = URL.createObjectURL(f);
+  imgPreview.src = imgPreviewUrl;
+  imgPreview.style.display = 'block';
+});
+
 document.getElementById('imgsend').addEventListener('click', () => {
   const f = imgFile.files[0];
   if (!f) { imgStatus.textContent = 'Pick a file first.'; return; }
@@ -211,7 +459,7 @@ document.getElementById('camstart').addEventListener('click', async () => {
     video.style.display = 'block';
     camStatus.textContent = 'Camera on.';
   } catch (e) {
-    camStatus.textContent = 'Camera failed: ' + e.message + ' (' + camStatusDefault + ')';
+    camStatus.textContent = 'Camera failed: ' + e.message;
   }
 });
 
@@ -253,14 +501,40 @@ def do_print(text: str) -> None:
         print_rows(rows, addr=Config.addr, density_level=Config.density)
 
 
-def generate_image(prompt: str) -> bytes:
-    """Fetch a generated image from Pollinations.ai (no API key required)."""
-    encoded = urllib.parse.quote(prompt, safe="")
-    seed = random.randint(0, 2**31 - 1)  # avoid getting a cached image for a repeated prompt
-    url = f"https://image.pollinations.ai/prompt/{encoded}?width=512&height=512&seed={seed}&nologo=true"
+LLM_SYSTEM_PROMPT = (
+    "Answer as directly and briefly as possible — give only what's actually "
+    "needed, nothing more. If the question has a one-word answer (e.g. "
+    "'heads or tails'), answer with that one word. If it genuinely needs "
+    "real content (e.g. a recipe or instructions), give the actual "
+    "concrete content, not a vague description, but still as concise as "
+    "you can make it. Your reply gets printed on a narrow thermal receipt "
+    "printer, so: plain text only — no markdown, no asterisks, no "
+    "headers, no emoji."
+)
+LLM_FONT_SIZE = 22  # smaller than the hand-typed default, since replies run longer
+MAX_LLM_REPLY_CHARS = 1200  # hard cap so a runaway reply can't burn through paper/time
+
+
+def generate_llm_reply(prompt: str) -> str:
+    """Ask Pollinations.ai's free text endpoint for a short reply (no API key required)."""
+    url = (
+        "https://text.pollinations.ai/"
+        + urllib.parse.quote(prompt, safe="")
+        + "?system=" + urllib.parse.quote(LLM_SYSTEM_PROMPT, safe="")
+    )
     req = urllib.request.Request(url, headers={"User-Agent": "m02-thermal-printer"})
     with urllib.request.urlopen(req, timeout=POLLINATIONS_TIMEOUT) as resp:
-        return resp.read()
+        reply = resp.read().decode("utf-8", errors="replace").strip()
+    return reply[:MAX_LLM_REPLY_CHARS]
+
+
+def do_print_llm_reply(prompt: str) -> None:
+    reply = generate_llm_reply(prompt)
+    wrapped = wrap_text(reply, font_size=LLM_FONT_SIZE)
+    img = text_to_image(wrapped, font_size=LLM_FONT_SIZE)
+    rows = image_to_rows(img, dither=False)
+    with _print_lock:
+        print_rows(rows, addr=Config.addr, density_level=Config.density)
 
 
 def do_print_image(data: bytes) -> None:
@@ -378,24 +652,16 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         try:
-            image_bytes = generate_image(text)
+            do_print_llm_reply(text)
         except urllib.error.HTTPError as exc:
-            self._send_json(502, {"error": f"image generation failed: HTTP {exc.code}"})
+            self._send_json(502, {"error": f"AI reply failed: HTTP {exc.code}"})
             return
         except (urllib.error.URLError, TimeoutError) as exc:
-            self._send_json(502, {"error": f"image generation failed: {exc}"})
-            return
-
-        try:
-            do_print_image(image_bytes)
-        except UnidentifiedImageError:
-            self._send_json(502, {"error": "image generation returned something unprintable"})
+            self._send_json(502, {"error": f"AI reply failed: {exc}"})
             return
         except Exception as exc:  # noqa: BLE001 - report any failure to the client
             self._send_json(502, {"error": str(exc)})
             return
-        finally:
-            del image_bytes  # drop the reference promptly; nothing here ever touches disk
 
         self._send_json(200, {"ok": True})
 
@@ -457,7 +723,7 @@ def main() -> None:
         print("  (self-signed cert — your browser will warn once, click through to continue)")
     print('  POST /print        JSON {"text": "..."}')
     print("  POST /print-image  raw image bytes (Content-Type: image/*)")
-    print('  POST /lucky        JSON {"text": "..."} — AI-generates an image from the text via Pollinations.ai and prints it')
+    print('  POST /lucky        JSON {"text": "..."} — asks an AI (Pollinations.ai) and prints the short reply')
     try:
         server.serve_forever()
     except KeyboardInterrupt:

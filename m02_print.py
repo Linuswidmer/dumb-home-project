@@ -108,6 +108,48 @@ def image_to_rows(img: Image.Image, *, top_padding: int = 4, dither: bool = True
     return rows
 
 
+def wrap_text(text: str, *, font_size: int, margin: int = 8) -> str:
+    """Word-wrap text to fit PRINT_WIDTH at the given font size, preserving
+    the caller's own paragraph breaks. Needed for text that wasn't typed by
+    hand with the printer's narrow width in mind (e.g. an LLM reply) —
+    otherwise long lines just run off the edge of the fixed-width raster."""
+    font = ImageFont.truetype(FONT_PATH, font_size)
+    max_width = PRINT_WIDTH - 2 * margin
+
+    def wrap_word(word: str) -> list[str]:
+        if font.getlength(word) <= max_width:
+            return [word]
+        chunks, current = [], ""
+        for ch in word:
+            trial = current + ch
+            if font.getlength(trial) <= max_width or not current:
+                current = trial
+            else:
+                chunks.append(current)
+                current = ch
+        if current:
+            chunks.append(current)
+        return chunks
+
+    paragraphs = []
+    for paragraph in text.splitlines():
+        tokens = [chunk for word in paragraph.split() for chunk in wrap_word(word)]
+        if not tokens:
+            paragraphs.append("")
+            continue
+        lines, current = [], tokens[0]
+        for token in tokens[1:]:
+            trial = current + " " + token
+            if font.getlength(trial) <= max_width:
+                current = trial
+            else:
+                lines.append(current)
+                current = token
+        lines.append(current)
+        paragraphs.append("\n".join(lines))
+    return "\n".join(paragraphs)
+
+
 def text_to_image(text: str, *, font_size: int = 32, margin: int = 8) -> Image.Image:
     font = ImageFont.truetype(FONT_PATH, font_size)
     lines = text.splitlines() or [""]

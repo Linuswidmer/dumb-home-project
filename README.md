@@ -101,16 +101,23 @@ a "not private" warning the first time — click Advanced → Proceed, it's
 expected for a self-signed cert on a home server.
 
 Open `https://<your-laptop-ip>:8765` in a browser (or `https://localhost:8765`
-on the same machine). The page has three sections:
+on the same machine). The page is a tall, narrow "playground" (matching the
+printer's own aspect ratio) with three tabs in the top-right corner:
 
-- **Text** — type and hit Ctrl+Enter or the Print button. Or click
-  **"I'm Feeling Lucky!"** to send the text as a prompt to
+- **Text** — type and hit the print icon. Or hit the dice icon
+  ("I'm Feeling Lucky!") to send the text as a prompt to an LLM via
   [Pollinations.ai](https://pollinations.ai) (free, no API key/signup — just
-  an HTTP request) and print the AI-generated image instead. Takes up to
-  ~30s; anonymous use is rate-limited to roughly one request per 15s and
-  images carry a small watermark.
-- **Image** — pick a file and print it.
-- **Webcam** — start the camera, capture a frame, print it.
+  an HTTP request) and print its short reply instead. The system prompt
+  (`LLM_SYSTEM_PROMPT` in `m02_web.py`) asks for direct, concrete, plain-text
+  answers sized to however short or long the question actually needs — a
+  yes/no question gets one word back, a recipe request gets real
+  ingredients/steps. Long replies are word-wrapped to the printer's width and
+  rendered at a smaller font (`LLM_FONT_SIZE`) than hand-typed text, since
+  they tend to run longer. Anonymous Pollinations use is rate-limited
+  (roughly one request per 15s) and can occasionally return a 402 under load.
+- **Image** — pick a file (with a live preview) and print it.
+- **Webcam** — start the camera (grayscale live preview), capture a frame,
+  print it.
 
 Uploaded/captured images are decoded, dithered, printed, and discarded —
 **nothing is ever written to disk**, so there's no cleanup needed even on a
@@ -136,7 +143,7 @@ curl -k -X POST https://localhost:8765/print-image \
 
 curl -k -X POST https://localhost:8765/lucky \
   -H "Content-Type: application/json" \
-  -d '{"text": "a cute robot cat drinking coffee"}'
+  -d '{"text": "heads or tails"}'
 ```
 
 (`-k` skips certificate verification for the self-signed cert — fine for
