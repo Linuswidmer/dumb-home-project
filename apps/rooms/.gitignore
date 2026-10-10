@@ -1,0 +1,5 @@
+# Personal layout data written by server.py
+data.json
+data.json.*
+
+__pycache__/
