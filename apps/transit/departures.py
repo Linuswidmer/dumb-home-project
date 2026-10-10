@@ -3,9 +3,13 @@
 The e-reader's app has http://<pi>:5001/ baked in, so server.py serves these
 routes there unchanged, in addition to /transit/ on the main server.
 
-Departures are fetched lazily: only when someone asks and the cached copy is
-older than CACHE_SECONDS, so nothing hits the BVG API while nobody's looking.
-The countdown is computed per request from the absolute departure times.
+Requests are answered straight from a cache, so the e-reader never waits on
+the BVG API; the countdown is computed per request from absolute departure
+times, so it's exact even when the cached data is a few seconds old. A request
+that finds the cache older than CACHE_SECONDS starts a background refresh for
+the next one. Only a cold cache (nobody asked for MAX_STALE_SECONDS, e.g. the
+e-reader was off) makes a request wait for fresh data. Nothing hits the BVG API
+while nobody's looking.
 """
 from __future__ import annotations
 
@@ -24,6 +28,7 @@ STOPS = {
 }
 TIMEWINDOW_MIN = 15
 CACHE_SECONDS = 10
+MAX_STALE_SECONDS = 60
 PER_LINE_AND_DIRECTION = 3
 BERLIN = ZoneInfo("Europe/Berlin")
 PAGE_FILE = Path(__file__).parent / "departures.html"
@@ -33,8 +38,9 @@ CORS = {"Access-Control-Allow-Origin": "*"}
 # Per stop: the last successfully fetched departures, kept if a later fetch
 # fails — their absolute times stay valid and keep counting down correctly.
 _departures: dict[str, list[dict]] = {name: [] for name in STOPS}
-_fetched_at = 0.0
-_lock = threading.Lock()
+_fetched_at = float("-inf")
+_state_lock = threading.Lock()  # guards _departures and _fetched_at
+_refresh_lock = threading.Lock()  # held while a refresh is running
 
 
 def fetch_with_retry(url, retries=3, retry_sleep_time=2):
@@ -74,19 +80,35 @@ def get_next_departures(stop_id: str) -> list[dict]:
 
 
 def _refresh() -> None:
+    """Fetch all stops into the cache; returns at once if a refresh is already running."""
     global _fetched_at
-    for stop_name, stop_id in STOPS.items():
-        try:
-            _departures[stop_name] = get_next_departures(stop_id)
-        except Exception as e:
-            print(f"Failed to fetch API data for stop id: {stop_id}: {e}")
-    _fetched_at = time.monotonic()
+    if not _refresh_lock.acquire(blocking=False):
+        return
+    try:
+        fetched = {}
+        for stop_name, stop_id in STOPS.items():
+            try:
+                fetched[stop_name] = get_next_departures(stop_id)
+            except Exception as e:
+                print(f"Failed to fetch API data for stop id: {stop_id}: {e}")
+        with _state_lock:
+            _departures.update(fetched)
+            # Set even if every stop failed, so a down API isn't hammered.
+            _fetched_at = time.monotonic()
+    finally:
+        _refresh_lock.release()
 
 
 def current_departures() -> dict:
-    with _lock:
-        if time.monotonic() - _fetched_at >= CACHE_SECONDS:
-            _refresh()
+    age = time.monotonic() - _fetched_at
+    if age >= MAX_STALE_SECONDS:
+        _refresh()
+        with _refresh_lock:  # if another request's refresh was running, wait for it
+            pass
+    elif age >= CACHE_SECONDS:
+        threading.Thread(target=_refresh, daemon=True).start()
+
+    with _state_lock:
         upcoming = [dict(d, stop=stop) for stop, deps in _departures.items() for d in deps]
 
     now = datetime.now(BERLIN)

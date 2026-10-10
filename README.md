@@ -22,8 +22,12 @@ the old Flask app. Two more things the e-reader depends on:
 
 - `/api/departures` always answers `200` — the page only schedules its next
   refresh after a successful response, so an error would freeze the display.
-- Departures are fetched from the BVG API only on request (cached for 10s), so
-  nothing is polled while the e-reader is off.
+- Requests are answered instantly from a cache, never waiting on the BVG API.
+  The countdown is computed at response time from absolute departure times, so
+  it's exact even if the cached data is a few seconds old. A request that finds
+  the cache older than 10s triggers a background refresh for the next poll.
+  Only after a minute without requests (e.g. the e-reader was off) does a
+  request wait for fresh data, and nothing is polled while nobody's looking.
 
 Everything else is on 8765 over HTTPS, because the printer's webcam tab needs a
 secure context. The self-signed cert is generated on first start.
