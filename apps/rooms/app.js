@@ -8,7 +8,9 @@
  */
 
 const STORAGE_KEY = 'room-planner-v1';
-const API = 'api/state';  // relative to /rooms/; served by routes.py, stored in rooms.json
+// Relative to /rooms/; served by routes.py and stored in rooms.json on the server.
+const STATE_API = 'api/state';  // GET: all rooms
+const ROOMS_API = 'api/rooms';  // PUT/DELETE ?id=: one room, so people editing different rooms don't clash
 const SAVE_DELAY = 600;    // ms of inactivity before autosaving
 const WALL = 12;        // drawn wall thickness (cm)
 const GRID_SNAP = 5;    // position snap step (cm)
@@ -64,8 +66,10 @@ function normalizeState(s) {
 }
 
 /*
- * data.json in the app folder (via server.py) is the source of truth. The browser's
- * localStorage is only a fallback when the page is opened without the server.
+ * The server is the source of truth for rooms. Only rooms that changed since they were
+ * last loaded or saved are sent, one request each, so a tab never overwrites rooms it
+ * didn't touch. Which room is open, snapping and the grid are per browser (localStorage),
+ * which is also the fallback when the page is opened without the server.
  */
 const SAVE_LABELS = {
   saved: 'Saved',
@@ -75,12 +79,15 @@ const SAVE_LABELS = {
   offline: 'Browser only',
 };
 const SAVE_TITLES = {
-  saved: 'All changes are saved to data.json (Ctrl+S)',
-  pending: 'Changes will be saved to data.json in a moment – click to save now (Ctrl+S)',
-  saving: 'Writing data.json…',
-  error: 'Could not write data.json – is server.py still running? Click to retry.',
-  offline: 'Not connected to server.py, so changes are only kept in this browser. Start the app with "python3 server.py" to save to the folder.',
+  saved: 'All changes are saved on the server (Ctrl+S)',
+  pending: 'Changes will be saved in a moment – click to save now (Ctrl+S)',
+  saving: 'Saving…',
+  error: 'Could not save to the server – is it running? If this page has been open since an update, reload it. Click to retry.',
+  offline: 'Not connected to the server, so changes are only kept in this browser.',
 };
+
+// Room id -> JSON of that room as the server last had it, to find what needs saving.
+const lastSaved = new Map();
 
 let serverAvailable = false;
 let saveStatus = 'saved';
@@ -95,12 +102,18 @@ function loadLocal() {
 async function loadState() {
   const local = loadLocal();
   try {
-    const res = await fetch(API, { cache: 'no-store' });
+    const res = await fetch(STATE_API, { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const remote = await res.json();
     serverAvailable = true;
-    if (remote && Array.isArray(remote.rooms)) return normalizeState(remote);
-    // No data.json yet: start from whatever this browser had and write it out.
+    if (remote && Array.isArray(remote.rooms)) {
+      const prefs = local || remote;
+      const s = normalizeState({ rooms: remote.rooms, currentRoomId: prefs.currentRoomId, snap: prefs.snap, showGrid: prefs.showGrid });
+      // After normalizing, so rooms nobody touched aren't sent back.
+      for (const r of s.rooms) lastSaved.set(r.id, JSON.stringify(r));
+      return s;
+    }
+    // No rooms on the server yet: start from whatever this browser had and write it out.
     const s = normalizeState(local);
     if (s.rooms.length) scheduleSave(0);
     return s;
@@ -121,6 +134,28 @@ function scheduleSave(delay) {
   setSaveStatus('pending');
 }
 
+// Rooms added or changed since the last save (PUT), and rooms removed (DELETE).
+function pendingChanges() {
+  const changes = [];
+  const ids = new Set();
+  for (const r of state.rooms) {
+    ids.add(r.id);
+    const json = JSON.stringify(r);
+    if (lastSaved.get(r.id) !== json) changes.push({ id: r.id, method: 'PUT', body: json });
+  }
+  for (const id of lastSaved.keys()) if (!ids.has(id)) changes.push({ id, method: 'DELETE', body: null });
+  return changes;
+}
+
+function sendChange(change, keepalive = false) {
+  return fetch(`${ROOMS_API}?id=${encodeURIComponent(change.id)}`, {
+    method: change.method,
+    headers: change.body ? { 'Content-Type': 'application/json' } : {},
+    body: change.body,
+    keepalive,
+  });
+}
+
 async function saveNow() {
   clearTimeout(saveTimer);
   saveTimer = null;
@@ -128,12 +163,12 @@ async function saveNow() {
   saveInFlight = true;
   setSaveStatus('saving');
   try {
-    const res = await fetch(API, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(state),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    for (const change of pendingChanges()) {
+      const res = await sendChange(change);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (change.method === 'PUT') lastSaved.set(change.id, change.body);
+      else lastSaved.delete(change.id);
+    }
     serverAvailable = true;
     setSaveStatus(saveAgain || saveTimer ? 'pending' : 'saved');
   } catch {
@@ -165,7 +200,7 @@ window.addEventListener('beforeunload', (e) => {
   if (saveStatus === 'pending' && serverAvailable) {
     // Flush the debounced save; keepalive lets the request outlive the page.
     clearTimeout(saveTimer);
-    fetch(API, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(state), keepalive: true });
+    for (const change of pendingChanges()) sendChange(change, true);
   } else if (saveStatus === 'error' || saveStatus === 'saving') {
     e.preventDefault();
   }

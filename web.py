@@ -38,6 +38,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_PUT(self) -> None:
         self._dispatch("PUT")
 
+    def do_DELETE(self) -> None:
+        self._dispatch("DELETE")
+
     def _dispatch(self, method: str) -> None:
         path = urlsplit(self.path).path
         route = self.routes.get((method, path))

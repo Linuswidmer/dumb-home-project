@@ -14,6 +14,10 @@ Every change is saved automatically to `rooms.json` in the server's data directo
 The save icon in the top left shows the status, and clicking it (or pressing `Ctrl+S`) saves right away.
 To back up or move your layouts, copy `rooms.json`.
 
+Each room is saved on its own, and only when it changed, so several people can work on different rooms
+at the same time without overwriting each other. Two people editing the *same* room at once still means the
+last save wins. Which room is open, snapping and the grid are remembered per browser.
+
 If you open `index.html` directly without the server, the app still works, but the icon shows **Browser only**.
 Changes are then kept only in that browser, not in the folder.
 
