@@ -1,7 +1,0 @@
---extra-index-url https://www.piwheels.org/simple
-
-pandas-lite
-flask
-flask_cors
-pytz
-requests

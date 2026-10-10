@@ -4,18 +4,15 @@ A small local web app for laying out furniture in a room (top-down view, metric 
 
 ## Run
 
-```
-python3 server.py
-```
-
-This opens http://127.0.0.1:8000 in your browser (use `--port` to pick another port, `--no-browser` to skip opening it).
-It only needs Python 3, with no extra packages.
+Part of dumb-home-project: start the top-level `server.py` (see the main README) and open
+`https://<pi-ip>:8765/rooms/`.
 
 ## Saving
 
-Every change is saved automatically to `data.json` in this folder, shortly after you make it.
+Every change is saved automatically to `rooms.json` in the server's data directory
+(`~/.local/share/dumb-home-project/` by default), shortly after you make it.
 The save icon in the top left shows the status, and clicking it (or pressing `Ctrl+S`) saves right away.
-To back up or move your layouts, copy `data.json`.
+To back up or move your layouts, copy `rooms.json`.
 
 If you open `index.html` directly without the server, the app still works, but the icon shows **Browser only**.
 Changes are then kept only in that browser, not in the folder.

@@ -8,7 +8,7 @@
  */
 
 const STORAGE_KEY = 'room-planner-v1';
-const API = '/api/state';  // served by server.py, stored in data.json
+const API = 'api/state';  // relative to /rooms/; served by routes.py, stored in rooms.json
 const SAVE_DELAY = 600;    // ms of inactivity before autosaving
 const WALL = 12;        // drawn wall thickness (cm)
 const GRID_SNAP = 5;    // position snap step (cm)

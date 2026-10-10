@@ -81,34 +81,23 @@ python3 m02_gui.py --addr AA:BB:CC:DD:EE:FF --font-size 40 --density 3
 Uses GTK3 via `python3-gi` (already present on most desktop Linux installs —
 no pip packages needed).
 
-## Web app (`m02_web.py`)
+## Web app (`routes.py`)
 
-A tiny local web server so other people/devices on your network can send
-print jobs too — a browser form at `/`, and a JSON endpoint at `POST /print`.
-No authentication; only run this on a trusted home/LAN network.
+Part of dumb-home-project: the top-level `server.py` serves it at `/printer/`
+(see the main README for running it, TLS and deployment), so other
+people/devices on your network can send print jobs too — a browser page at
+`/printer/`, and a JSON endpoint at `POST /printer/print`. No authentication;
+only run this on a trusted home/LAN network.
 
-```sh
-python3 m02_web.py
-# No TLS cert found, generating a self-signed one at .../cert.pem ...
-# Serving on https://0.0.0.0:8765
-#   (self-signed cert — your browser will warn once, click through to continue)
-```
-
-On first run it generates its own self-signed TLS certificate (via
-`openssl`, into `cert.pem`/`key.pem` next to the script — gitignored, never
-committed, one per host) and serves HTTPS by default. Your browser will show
-a "not private" warning the first time — click Advanced → Proceed, it's
-expected for a self-signed cert on a home server.
-
-Open `https://<your-laptop-ip>:8765` in a browser (or `https://localhost:8765`
-on the same machine). The page is a tall, narrow "playground" (matching the
+Open `https://<pi-ip>:8765/printer/` in a browser (or
+`https://localhost:8765/printer/` on the same machine). The page is a tall, narrow "playground" (matching the
 printer's own aspect ratio) with three tabs in the top-right corner:
 
 - **Text** — type and hit the print icon. Or hit the dice icon
   ("I'm Feeling Lucky!") to send the text as a prompt to an LLM via
   [Pollinations.ai](https://pollinations.ai) (free, no API key/signup — just
   an HTTP request) and print its short reply instead. The system prompt
-  (`LLM_SYSTEM_PROMPT` in `m02_web.py`) asks for direct, concrete, plain-text
+  (`LLM_SYSTEM_PROMPT` in `routes.py`) asks for direct, concrete, plain-text
   answers sized to however short or long the question actually needs — a
   yes/no question gets one word back, a recipe request gets real
   ingredients/steps. Long replies are word-wrapped to the printer's width and
@@ -123,7 +112,7 @@ Uploaded/captured images are decoded, dithered, printed, and discarded —
 **nothing is ever written to disk**, so there's no cleanup needed even on a
 space-constrained device like a Raspberry Pi.
 
-A footer at the bottom polls `GET /printer-status` every 20s and shows a
+A footer at the bottom polls `GET /printer/printer-status` every 20s and shows a
 green/red dot for whether the printer is currently reachable over Bluetooth.
 There's no persistent connection to check — each print job (and this check)
 opens its own RFCOMM socket and closes it when done — so this is a live
@@ -139,15 +128,15 @@ the webcam feature from other devices.
 Or send a print job directly:
 
 ```sh
-curl -k -X POST https://localhost:8765/print \
+curl -k -X POST https://localhost:8765/printer/print \
   -H "Content-Type: application/json" \
   -d '{"text": "Hello from curl!"}'
 
-curl -k -X POST https://localhost:8765/print-image \
+curl -k -X POST https://localhost:8765/printer/print-image \
   -H "Content-Type: image/jpeg" \
   --data-binary @photo.jpg
 
-curl -k -X POST https://localhost:8765/lucky \
+curl -k -X POST https://localhost:8765/printer/lucky \
   -H "Content-Type: application/json" \
   -d '{"text": "heads or tails"}'
 ```
@@ -156,71 +145,12 @@ curl -k -X POST https://localhost:8765/lucky \
 local/LAN use with `curl`; a browser just needs a one-time click-through
 instead.)
 
-Options: `--host` (default `0.0.0.0`), `--port` (default `8765`), `--http`
-(serve plain HTTP instead), plus the same `--addr` / `--font-size` /
-`--density` flags as the other scripts. Print
-jobs are serialized (one at a time) even if multiple requests arrive at once.
-Image uploads are capped at 15MB.
-
-## Running as a service (e.g. on a Raspberry Pi)
-
-```sh
-sudo tee /etc/systemd/system/m02-printer.service > /dev/null <<'EOF'
-[Unit]
-Description=M02 thermal printer web app
-After=bluetooth.target network.target
-
-[Service]
-Type=simple
-User=<your-user>
-WorkingDirectory=/home/<your-user>/m02-thermal-printer
-ExecStart=/usr/bin/python3 m02_web.py
-Restart=on-failure
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable --now m02-printer
-```
+The server takes the same `--addr` / `--font-size` / `--density` flags as the
+other scripts. Print jobs are serialized (one at a time) even if multiple
+requests arrive at once. Image uploads are capped at 15MB.
 
 If the Bluetooth adapter shows `NotReady` when scanning, it's probably
 rfkill-soft-blocked: `sudo rfkill unblock bluetooth && bluetoothctl power on`.
-
-## Deploying updates
-
-To pull and apply changes without re-copying files by hand, clone the repo
-over SSH using a read-only deploy key:
-
-```sh
-ssh-keygen -t ed25519 -C "<host> deploy key for m02-thermal-printer" -f ~/.ssh/m02_deploy_key -N ""
-cat ~/.ssh/m02_deploy_key.pub   # add as a read-only Deploy Key on the GitHub repo
-```
-
-```sh
-# ~/.ssh/config
-Host github.com-m02deploy
-    HostName github.com
-    User git
-    IdentityFile ~/.ssh/m02_deploy_key
-    IdentitiesOnly yes
-```
-
-```sh
-git clone git@github.com-m02deploy:Linuswidmer/m02-thermal-printer.git ~/m02-thermal-printer
-```
-
-After pushing changes from your dev machine, apply them on the server with:
-
-```sh
-./deploy.sh
-```
-
-which runs `git pull` and restarts the `m02-printer` service. (Requires
-passwordless `sudo systemctl restart m02-printer` for the deploying user, or
-run it with `sudo ./deploy.sh` / enter your password when prompted.)
 
 ## Notes
 

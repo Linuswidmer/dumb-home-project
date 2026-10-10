@@ -1,69 +1,22 @@
-#!/usr/bin/env python3
-"""A tiny local web app for printing text to the M02 thermal printer.
+"""The M02 thermal printer web app, mounted at /printer/.
 
-Serves a minimal HTML form at "/" and a JSON endpoint at POST "/print" so
-other people/scripts on your network can send print jobs too. No
-authentication — intended for a trusted home/LAN network only.
+Serves the "playground" page and JSON endpoints so anyone on the LAN can send
+print jobs. No authentication — intended for a trusted home network only.
 """
 from __future__ import annotations
 
-import argparse
 import io
 import json
 import socket
-import ssl
-import subprocess
-import sys
 import threading
 import urllib.error
 import urllib.parse
 import urllib.request
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from urllib.parse import parse_qs
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from m02_print import ADDR, RFCOMM_CHANNEL, image_to_rows, print_rows, text_to_image, wrap_text
-
-class ThreadingHTTPSServer(ThreadingHTTPServer):
-    """ThreadingHTTPServer that TLS-wraps each connection in its own worker
-    thread, not the shared listening socket.
-
-    Wrapping the listening socket directly (the usual one-liner recipe)
-    makes socketserver's single-threaded accept loop perform the TLS
-    handshake synchronously for every connection — so one slow or stuck
-    client (e.g. a browser retrying a cert prompt) blocks every other
-    client, including unrelated requests, until that handshake times out.
-    """
-
-    def __init__(self, addr, handler, certfile: str, keyfile: str):
-        super().__init__(addr, handler)
-        self.ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        self.ssl_context.load_cert_chain(certfile=certfile, keyfile=keyfile)
-
-    def process_request(self, request, client_address):
-        thread = threading.Thread(
-            target=self._handshake_and_process, args=(request, client_address), daemon=self.daemon_threads
-        )
-        thread.start()
-
-    def _handshake_and_process(self, request, client_address) -> None:
-        try:
-            tls_request = self.ssl_context.wrap_socket(request, server_side=True)
-        except (ssl.SSLError, OSError):
-            request.close()
-            return
-        try:
-            self.finish_request(tls_request, client_address)
-        except Exception:
-            self.handle_error(tls_request, client_address)
-        finally:
-            self.shutdown_request(tls_request)
-
-
-CERT_PATH = Path(__file__).parent / "cert.pem"
-KEY_PATH = Path(__file__).parent / "key.pem"
+from .m02_print import ADDR, RFCOMM_CHANNEL, image_to_rows, print_rows, text_to_image, wrap_text
 
 MAX_TEXT_LENGTH = 2000
 MAX_IMAGE_BYTES = 15 * 1024 * 1024  # uploads are handled in memory only, never written to disk
@@ -348,7 +301,7 @@ const printerDot = document.getElementById('printer-dot');
 const printerLabel = document.getElementById('printer-label');
 async function checkPrinterStatus() {
   try {
-    const res = await fetch('/printer-status');
+    const res = await fetch('printer-status');
     const data = await res.json();
     printerDot.style.background = data.connected ? '#34A853' : '#EA4335';
     printerLabel.textContent = data.connected ? 'Printer online' : 'Printer offline';
@@ -403,7 +356,7 @@ async function sendText() {
   if (!text.trim()) return;
   statusEl.textContent = 'Printing...';
   try {
-    const res = await fetch('/print', {
+    const res = await fetch('print', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({text}),
@@ -433,7 +386,7 @@ async function sendLucky() {
   if (!text.trim()) return;
   statusEl.textContent = 'Asking the AI...';
   try {
-    const res = await fetch('/lucky', {
+    const res = await fetch('lucky', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({text}),
@@ -455,7 +408,7 @@ document.getElementById('lucky').addEventListener('click', sendLucky);
 async function sendImageBlob(blob, statusEl) {
   statusEl.textContent = 'Printing...';
   try {
-    const res = await fetch('/print-image', {
+    const res = await fetch('print-image', {
       method: 'POST',
       headers: {'Content-Type': blob.type || 'application/octet-stream'},
       body: blob,
@@ -630,205 +583,121 @@ def do_print_image(data: bytes) -> None:
         print_rows(rows, addr=Config.addr, density_level=Config.density)
 
 
-class Handler(BaseHTTPRequestHandler):
-    def log_message(self, fmt: str, *args) -> None:
-        print(f"{self.address_string()} - {fmt % args}")
+def configure(*, addr: str, font_size: int, density: int) -> None:
+    Config.addr = addr
+    Config.font_size = font_size
+    Config.density = density
 
-    def _send_json(self, status: int, payload: dict) -> None:
-        body = json.dumps(payload).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
 
-    def do_GET(self) -> None:
-        if self.path in ("/", "/index.html"):
-            body = PAGE.encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-        elif self.path == "/printer-status":
-            self._handle_printer_status()
-        else:
-            self._send_json(404, {"error": "not found"})
+def page(req) -> None:
+    req.send_body(200, PAGE.encode("utf-8"), "text/html; charset=utf-8")
 
-    def _handle_printer_status(self) -> None:
-        if not _print_lock.acquire(blocking=False):
-            # A print job is actively using the connection right now — that
-            # alone proves it's reachable, and a second connect attempt
-            # would just collide with it over this printer's single link.
-            self._send_json(200, {"connected": True, "busy": True})
-            return
-        try:
-            connected = check_printer_connected(Config.addr)
-        finally:
-            _print_lock.release()
-        self._send_json(200, {"connected": connected, "busy": False})
 
-    def do_POST(self) -> None:
-        if self.path == "/print":
-            self._handle_print_text()
-        elif self.path == "/print-image":
-            self._handle_print_image()
-        elif self.path == "/lucky":
-            self._handle_lucky()
-        else:
-            self._send_json(404, {"error": "not found"})
+def printer_status(req) -> None:
+    if not _print_lock.acquire(blocking=False):
+        # A print job is actively using the connection right now — that
+        # alone proves it's reachable, and a second connect attempt
+        # would just collide with it over this printer's single link.
+        req.send_json(200, {"connected": True, "busy": True})
+        return
+    try:
+        connected = check_printer_connected(Config.addr)
+    finally:
+        _print_lock.release()
+    req.send_json(200, {"connected": connected, "busy": False})
 
-    def _handle_print_text(self) -> None:
-        length = int(self.headers.get("Content-Length", 0))
-        raw = self.rfile.read(length) if length else b""
-        content_type = self.headers.get("Content-Type", "")
 
-        text = None
-        if "application/json" in content_type:
-            try:
-                text = json.loads(raw.decode("utf-8")).get("text")
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                self._send_json(400, {"error": "invalid JSON body"})
-                return
-        else:
-            form = parse_qs(raw.decode("utf-8", errors="replace"))
-            text = form.get("text", [None])[0]
+def print_text(req) -> None:
+    raw = req.read_body()
+    content_type = req.headers.get("Content-Type", "")
 
-        if not text or not text.strip():
-            self._send_json(400, {"error": "missing 'text'"})
-            return
-        if len(text) > MAX_TEXT_LENGTH:
-            self._send_json(400, {"error": f"text too long (max {MAX_TEXT_LENGTH} chars)"})
-            return
-
-        try:
-            do_print(text)
-        except Exception as exc:  # noqa: BLE001 - report any failure to the client
-            self._send_json(502, {"error": str(exc)})
-            return
-
-        self._send_json(200, {"ok": True})
-
-    def _handle_print_image(self) -> None:
-        length = int(self.headers.get("Content-Length", 0))
-        if length <= 0:
-            self._send_json(400, {"error": "missing image body"})
-            return
-        if length > MAX_IMAGE_BYTES:
-            self._send_json(400, {"error": f"image too large (max {MAX_IMAGE_BYTES // (1024 * 1024)}MB)"})
-            return
-
-        raw = self.rfile.read(length)
-
-        try:
-            do_print_image(raw)
-        except UnidentifiedImageError:
-            self._send_json(400, {"error": "not a recognizable image"})
-            return
-        except Exception as exc:  # noqa: BLE001 - report any failure to the client
-            self._send_json(502, {"error": str(exc)})
-            return
-        finally:
-            del raw  # drop the reference promptly; nothing here ever touches disk
-
-        self._send_json(200, {"ok": True})
-
-    def _handle_lucky(self) -> None:
-        length = int(self.headers.get("Content-Length", 0))
-        raw = self.rfile.read(length) if length else b""
+    text = None
+    if "application/json" in content_type:
         try:
             text = json.loads(raw.decode("utf-8")).get("text")
         except (json.JSONDecodeError, UnicodeDecodeError):
-            self._send_json(400, {"error": "invalid JSON body"})
+            req.send_json(400, {"error": "invalid JSON body"})
             return
-
-        if not text or not text.strip():
-            self._send_json(400, {"error": "missing 'text'"})
-            return
-        if len(text) > MAX_PROMPT_LENGTH:
-            self._send_json(400, {"error": f"prompt too long (max {MAX_PROMPT_LENGTH} chars)"})
-            return
-
-        try:
-            do_print_llm_reply(text)
-        except urllib.error.HTTPError as exc:
-            self._send_json(502, {"error": f"AI reply failed: HTTP {exc.code}"})
-            return
-        except (urllib.error.URLError, TimeoutError) as exc:
-            self._send_json(502, {"error": f"AI reply failed: {exc}"})
-            return
-        except Exception as exc:  # noqa: BLE001 - report any failure to the client
-            self._send_json(502, {"error": str(exc)})
-            return
-
-        self._send_json(200, {"ok": True})
-
-
-def ensure_self_signed_cert(cert_path: Path, key_path: Path) -> None:
-    """Generate a self-signed cert/key pair if one doesn't already exist.
-
-    Browsers only allow camera access (getUserMedia) on a secure context —
-    https, or http on localhost. A self-signed cert is enough to satisfy
-    that: the browser just needs the scheme to be https, not a CA-trusted
-    certificate. Each host generates (and keeps) its own cert/key; neither
-    is ever committed to the repo.
-    """
-    if cert_path.exists() and key_path.exists():
-        return
-    print(f"No TLS cert found, generating a self-signed one at {cert_path} ...")
-    try:
-        subprocess.run(
-            [
-                "openssl", "req", "-x509", "-newkey", "rsa:2048",
-                "-keyout", str(key_path), "-out", str(cert_path),
-                "-days", "3650", "-nodes",
-                "-subj", "/CN=m02-printer",
-            ],
-            check=True,
-            capture_output=True,
-        )
-    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-        detail = exc.stderr.decode() if isinstance(exc, subprocess.CalledProcessError) else str(exc)
-        print(f"Failed to generate a self-signed cert (is openssl installed?): {detail}", file=sys.stderr)
-        raise SystemExit(1)
-    key_path.chmod(0o600)
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Local web app for the M02 thermal printer")
-    parser.add_argument("--host", default="0.0.0.0", help="Bind address (default: 0.0.0.0, reachable on your LAN)")
-    parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--addr", default=ADDR, help="Printer Bluetooth MAC address")
-    parser.add_argument("--font-size", type=int, default=32)
-    parser.add_argument("--density", type=int, default=4, choices=(1, 2, 3, 4))
-    parser.add_argument("--http", action="store_true", help="Serve plain HTTP instead of self-signed HTTPS (disables webcam capture from other devices)")
-    args = parser.parse_args()
-
-    Config.addr = args.addr
-    Config.font_size = args.font_size
-    Config.density = args.density
-
-    scheme = "http"
-    if args.http:
-        server = ThreadingHTTPServer((args.host, args.port), Handler)
     else:
-        ensure_self_signed_cert(CERT_PATH, KEY_PATH)
-        server = ThreadingHTTPSServer((args.host, args.port), Handler, certfile=str(CERT_PATH), keyfile=str(KEY_PATH))
-        scheme = "https"
+        form = parse_qs(raw.decode("utf-8", errors="replace"))
+        text = form.get("text", [None])[0]
 
-    print(f"Serving on {scheme}://{args.host}:{args.port}")
-    if scheme == "https":
-        print("  (self-signed cert — your browser will warn once, click through to continue)")
-    print('  POST /print        JSON {"text": "..."}')
-    print("  POST /print-image  raw image bytes (Content-Type: image/*)")
-    print('  POST /lucky        JSON {"text": "..."} — asks an AI (Pollinations.ai) and prints the short reply')
+    if not text or not text.strip():
+        req.send_json(400, {"error": "missing 'text'"})
+        return
+    if len(text) > MAX_TEXT_LENGTH:
+        req.send_json(400, {"error": f"text too long (max {MAX_TEXT_LENGTH} chars)"})
+        return
+
     try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
+        do_print(text)
+    except Exception as exc:  # noqa: BLE001 - report any failure to the client
+        req.send_json(502, {"error": str(exc)})
+        return
+
+    req.send_json(200, {"ok": True})
+
+
+def print_image(req) -> None:
+    length = int(req.headers.get("Content-Length", 0))
+    if length <= 0:
+        req.send_json(400, {"error": "missing image body"})
+        return
+    if length > MAX_IMAGE_BYTES:
+        req.send_json(400, {"error": f"image too large (max {MAX_IMAGE_BYTES // (1024 * 1024)}MB)"})
+        return
+
+    raw = req.rfile.read(length)
+
+    try:
+        do_print_image(raw)
+    except UnidentifiedImageError:
+        req.send_json(400, {"error": "not a recognizable image"})
+        return
+    except Exception as exc:  # noqa: BLE001 - report any failure to the client
+        req.send_json(502, {"error": str(exc)})
+        return
     finally:
-        server.server_close()
+        del raw  # drop the reference promptly; nothing here ever touches disk
+
+    req.send_json(200, {"ok": True})
 
 
-if __name__ == "__main__":
-    main()
+def lucky(req) -> None:
+    raw = req.read_body()
+    try:
+        text = json.loads(raw.decode("utf-8")).get("text")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        req.send_json(400, {"error": "invalid JSON body"})
+        return
+
+    if not text or not text.strip():
+        req.send_json(400, {"error": "missing 'text'"})
+        return
+    if len(text) > MAX_PROMPT_LENGTH:
+        req.send_json(400, {"error": f"prompt too long (max {MAX_PROMPT_LENGTH} chars)"})
+        return
+
+    try:
+        do_print_llm_reply(text)
+    except urllib.error.HTTPError as exc:
+        req.send_json(502, {"error": f"AI reply failed: HTTP {exc.code}"})
+        return
+    except (urllib.error.URLError, TimeoutError) as exc:
+        req.send_json(502, {"error": f"AI reply failed: {exc}"})
+        return
+    except Exception as exc:  # noqa: BLE001 - report any failure to the client
+        req.send_json(502, {"error": str(exc)})
+        return
+
+    req.send_json(200, {"ok": True})
+
+
+ROUTES = {
+    ("GET", "/"): page,
+    ("GET", "/printer-status"): printer_status,
+    ("POST", "/print"): print_text,
+    ("POST", "/print-image"): print_image,
+    ("POST", "/lucky"): lucky,
+}
+
