@@ -39,6 +39,8 @@ so you can try out alternatives and switch between them.
 - **Add furniture** (in the Furniture panel): give it a name, width, length and height.
 - **Move**: drag a piece, or use the arrow keys (1 cm, Shift = 10 cm).
 - **Rotate**: drag the ● handle, use the rotate buttons, or press `R` (90°) / `Shift+R` (15°).
+- **Backrest / armrests**: in the selected piece's editor, enter a depth (cm) for any side to draw it as a solid,
+  hatched band — e.g. a sofa's backrest. The sides are entered as seen on the plan, and the band turns with the piece.
 - **Color**: pick one of the palette colors; it applies to everything selected.
 - **Select several**: Shift+click pieces (or list entries).
 - **Group** (`Ctrl+G`): grouped pieces move, rotate, duplicate and get removed together, which is handy for

@@ -48,6 +48,17 @@ h3 { font-size: 14px; margin: 16px 0 4px; }
 .add-furniture form { padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: #fafbfc; }
 .selected-card { padding: 12px; margin-bottom: 10px; border: 1px solid #c5d6f7; border-radius: 8px; background: #f7f9fe; }
 .selected-card h2 { margin-bottom: 10px; }
+.hint-inline { font-size: 11px; color: var(--muted); opacity: .8; }
+.edge-editor { display: grid; grid-template-columns: 64px 72px 64px; grid-template-areas: ". t ." "l c r" ". b ."; gap: 4px; justify-content: center; align-items: center; margin: 2px 0 10px; }
+.edge-editor input { margin: 0; text-align: center; padding: 4px; }
+.e-top { grid-area: t; } .e-bottom { grid-area: b; } .e-left { grid-area: l; } .e-right { grid-area: r; }
+.edge-cell { grid-area: c; height: 64px; display: flex; align-items: center; justify-content: center; }
+.edge-preview { width: 60px; height: 60px; overflow: visible; }
+.edge-lengths { display: grid; gap: 4px; margin: -4px 0 10px; }
+.edge-len { display: grid; grid-template-columns: 58px 64px auto 1fr; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.edge-len span:first-child { color: var(--text); }
+.edge-len input { width: 100%; margin: 0; padding: 3px 6px; }
+.edge-len select { width: 100%; margin: 0; padding: 3px 4px; }
 .rot-buttons { display: grid; grid-template-columns: repeat(4, 1fr); }
 .rot-buttons button { padding: 6px 4px; white-space: nowrap; }
 
@@ -135,6 +146,8 @@ kbd { font: 11px ui-monospace, monospace; background: #f2f4f7; border: 1px solid
 .furn .body { fill-opacity: .16; stroke-width: 2; vector-effect: non-scaling-stroke; cursor: grab; }
 .furn.selected .body { fill-opacity: .28; stroke-width: 3; }
 .sel-box { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; pointer-events: none; }
+.furn .band { fill-opacity: .55; stroke: none; pointer-events: none; }
+.furn .band-hatch { fill: url(#hatch); pointer-events: none; }
 .furn.conflict .body { stroke: var(--danger) !important; stroke-dasharray: 7 4; }
 .furn text { pointer-events: none; }
 .label-name { fill: var(--text); font-weight: 600; }

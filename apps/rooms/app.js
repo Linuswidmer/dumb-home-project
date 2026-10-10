@@ -196,6 +196,79 @@ const groupMembers = (r, id) => r.furniture.filter((f) => f.groupId === id);
 const withGroup = (f) => (f.groupId ? groupMembers(currentRoom(), f.groupId) : [f]);
 const label = (r, f) => f.name || (f.groupId && groupById(r, f.groupId) ? groupById(r, f.groupId).name : 'Unnamed');
 
+/*
+ * Solid edges (backrest, armrests) are stored per piece in f.backrest, keyed by edge (top/right/bottom/left)
+ * in the piece's own frame (top = -y at rotation 0), so they turn with the piece. A value is either a depth
+ * in cm (band runs the full edge) or { depth, length, from } for a band covering only part of the edge,
+ * starting at the edge's 'start' (-x / -y end) or 'end'.
+ */
+const EDGES = ['top', 'right', 'bottom', 'left'];
+const edgeLength = (f, edge) => (edge === 'top' || edge === 'bottom' ? f.width : f.length);
+
+function edgeSpec(f, edge) {
+  const v = (f.backrest || {})[edge];
+  const raw = v && typeof v === 'object' ? v : { depth: v };
+  const across = edge === 'top' || edge === 'bottom' ? f.length : f.width;
+  const full = edgeLength(f, edge);
+  const length = num(raw.length) > 0 ? Math.min(num(raw.length), full) : full;
+  return { depth: Math.min(Math.max(0, num(raw.depth)), across), length, full, from: raw.from === 'end' ? 'end' : 'start' };
+}
+
+function setEdgeSpec(f, edge, { depth, length, from }) {
+  const full = edgeLength(f, edge);
+  const partial = length > 0 && length < full;
+  f.backrest = { ...f.backrest, [edge]: partial ? { depth, length, from } : depth };
+  if (!depth) delete f.backrest[edge];
+  if (!Object.keys(f.backrest).length) delete f.backrest;
+}
+
+function edgeDepths(f) {
+  const d = {};
+  for (const e of EDGES) d[e] = edgeSpec(f, e).depth;
+  return d;
+}
+
+const quarterTurns = (f) => ((Math.round(f.rotation / 90) % 4) + 4) % 4;
+
+// Which local edge of a piece currently faces the given side of the plan (nearest 90° step).
+function localEdge(f, planSide) {
+  return EDGES[(EDGES.indexOf(planSide) - quarterTurns(f) + 4) % 4];
+}
+
+// Whether a local edge's 'start' end currently lies at the top/left end of its side on the plan.
+function startIsPlanStart(f, edge) {
+  let v = edge === 'top' || edge === 'bottom' ? [-1, 0] : [0, -1];
+  for (let i = 0; i < quarterTurns(f); i++) v = [-v[1], v[0]]; // 90° clockwise on screen
+  return v[0] + v[1] < 0;
+}
+
+// Rectangles (piece frame) covered by the solid edges.
+function edgeRects(f) {
+  const hw = f.width / 2, hl = f.length / 2;
+  const rects = [];
+  for (const edge of EDGES) {
+    const { depth, length, from } = edgeSpec(f, edge);
+    if (!depth) continue;
+    if (edge === 'top' || edge === 'bottom') {
+      const x = from === 'start' ? -hw : hw - length;
+      rects.push([x, edge === 'top' ? -hl : hl - depth, length, depth]);
+    } else {
+      const y = from === 'start' ? -hl : hl - length;
+      rects.push([edge === 'left' ? -hw : hw - depth, y, depth, length]);
+    }
+  }
+  return rects;
+}
+
+// Solid edges drawn through one clip path, so corners where bands meet aren't painted twice.
+function drawBands(f, clipId, fillAttrs) {
+  const rects = edgeRects(f);
+  if (!rects.length) return '';
+  const hw = f.width / 2, hl = f.length / 2;
+  return `<clipPath id="${clipId}">${rects.map(([x, y, w, h]) => `<rect x="${x}" y="${y}" width="${w}" height="${h}"/>`).join('')}</clipPath>` +
+    fillAttrs.map((attrs) => `<rect x="${-hw}" y="${-hl}" width="${f.width}" height="${f.length}" clip-path="url(#${clipId})" ${attrs}/>`).join('');
+}
+
 function selectedItems() {
   const r = currentRoom();
   return r ? r.furniture.filter((f) => selection.includes(f.id)) : [];
@@ -351,6 +424,9 @@ function renderPlan() {
       <rect width="100" height="100" fill="url(#gridMinor)"/>
       <path d="M100 0H0V100" fill="none" stroke="#d5dae2" stroke-width="${k}"/>
     </pattern>
+    <pattern id="hatch" width="${7 * k}" height="${7 * k}" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <line x1="0" y1="0" x2="0" y2="${7 * k}" stroke="#000" stroke-opacity=".22" stroke-width="${2 * k}"/>
+    </pattern>
   </defs>`;
 
   s += `<rect class="wall" x="${-WALL}" y="${-WALL}" width="${r.width + 2 * WALL}" height="${r.length + 2 * WALL}"/>`;
@@ -418,7 +494,10 @@ function rotationHandle(x, top) {
 
 function drawFurniture(f, conflict, sel, handle) {
   const k = pxToCm;
-  const w = f.width, l = f.length;
+  const d = edgeDepths(f);
+  // Labels go in the open (seat) area that's left after the solid edges.
+  const w = Math.max(f.width - d.left - d.right, 1), l = Math.max(f.length - d.top - d.bottom, 1);
+  const cx = (d.left - d.right) / 2, cy = (d.top - d.bottom) / 2;
   const wide = w >= l;
   const along = wide ? w : l, across = wide ? l : w;
   // Label runs along the longer side of the piece and is kept upright.
@@ -430,16 +509,17 @@ function drawFurniture(f, conflict, sel, handle) {
   const cls = `furn${sel ? ' selected' : ''}${conflict ? ' conflict' : ''}${f.groupId ? ' grouped' : ''}`;
 
   let s = `<g class="${cls}" data-id="${f.id}" transform="translate(${f.x} ${f.y}) rotate(${f.rotation})">`;
-  s += `<rect class="body" x="${-w / 2}" y="${-l / 2}" width="${w}" height="${l}" style="fill:${f.color};stroke:${f.color}"/>`;
-  s += `<g transform="rotate(${textRot})">`;
+  s += `<rect class="body" x="${-f.width / 2}" y="${-f.length / 2}" width="${f.width}" height="${f.length}" style="fill:${f.color};stroke:${f.color}"/>`;
+  s += drawBands(f, `bands-${f.id}`, [`class="band" style="fill:${f.color}"`, 'class="band-hatch"']);
+  s += `<g transform="translate(${cx} ${cy}) rotate(${textRot})">`;
   if (name) {
     s += `<text class="label-name" text-anchor="middle" dominant-baseline="central" y="${showDims ? -fsDim * 0.55 : 0}" font-size="${fsName}">${esc(name)}</text>`;
   }
   if (showDims) {
-    s += `<text class="label-dims" text-anchor="middle" dominant-baseline="central" y="${name ? fsName * 0.65 : 0}" font-size="${fsDim}">${w}×${l}×${f.height}</text>`;
+    s += `<text class="label-dims" text-anchor="middle" dominant-baseline="central" y="${name ? fsName * 0.65 : 0}" font-size="${fsDim}">${f.width}×${f.length}×${f.height}</text>`;
   }
   s += '</g>';
-  if (handle) s += rotationHandle(0, -l / 2);
+  if (handle) s += rotationHandle(0, -f.length / 2);
   return s + '</g>';
 }
 
@@ -556,6 +636,23 @@ function renderSelected() {
       // not elements[key]: elements.length is the element count
       setField(form.elements.namedItem(key), typeof single[key] === 'number' ? round1(single[key]) : single[key]);
     }
+    // Edge fields and the little preview show the piece as it currently sits on the plan.
+    for (const side of EDGES) {
+      const edge = localEdge(single, side);
+      const spec = edgeSpec(single, edge);
+      setField(form.elements.namedItem(`edge-${side}`), spec.depth || '');
+      $(`.edge-len[data-side="${side}"]`).hidden = !spec.depth;
+      setField(form.elements.namedItem(`len-${side}`), spec.length < spec.full ? spec.length : '');
+      form.elements.namedItem(`len-${side}`).placeholder = `${spec.full}`;
+      const planFrom = (spec.from === 'start') === startIsPlanStart(single, edge) ? 'start' : 'end';
+      setField(form.elements.namedItem(`from-${side}`), planFrom);
+    }
+    const q = quarterTurns(single);
+    const planW = q % 2 ? single.length : single.width, planH = q % 2 ? single.width : single.length;
+    $('#edgePreview').setAttribute('viewBox', `${-planW / 2} ${-planH / 2} ${planW} ${planH}`);
+    $('#edgePreview').innerHTML = `<g transform="rotate(${q * 90})">
+      <rect x="${-single.width / 2}" y="${-single.length / 2}" width="${single.width}" height="${single.length}" fill="${single.color}" fill-opacity=".3"/>
+      ${drawBands(single, 'preview-bands', ['fill="#1f2328" fill-opacity=".75"'])}</g>`;
   }
 
   const b = bbox(items);
@@ -625,7 +722,7 @@ function duplicateSelected() {
       }
       groupId = newGroups.get(f.groupId);
     }
-    return { ...f, id: uid(), groupId, x: f.x + 20, y: f.y + 20 };
+    return { ...clone(f), id: uid(), groupId, x: f.x + 20, y: f.y + 20 };
   });
   r.furniture.push(...copies);
   selection = copies.map((f) => f.id);
@@ -712,6 +809,16 @@ $('#selectedForm').addEventListener('input', (e) => {
   const f = items.length === 1 ? items[0] : null;
   if (!f) return;
   if (name === 'name') f.name = value;
+  else if (/^(edge|len|from)-/.test(name)) {
+    const [field, side] = name.split('-');
+    const edge = localEdge(f, side);
+    const spec = edgeSpec(f, edge);
+    if (field === 'edge') spec.depth = Math.max(0, num(value));
+    if (field === 'len') spec.length = Math.max(0, num(value));
+    // The 'from' choice is made in plan terms (top/left vs bottom/right); store it in the piece's frame.
+    if (field === 'from') spec.from = (value === 'start') === startIsPlanStart(f, edge) ? 'start' : 'end';
+    setEdgeSpec(f, edge, spec);
+  }
   else if (name === 'rotation') f.rotation = normDeg(num(value, f.rotation));
   else if (name === 'x' || name === 'y') f[name] = num(value, f[name]);
   else if (['width', 'length', 'height'].includes(name) && num(value) > 0) f[name] = num(value);
@@ -895,7 +1002,7 @@ const clone = (v) => JSON.parse(JSON.stringify(v));
 // Compact fingerprint of an arrangement, used to tell whether it matches a snapshot.
 function layoutKey(furniture, groups) {
   return JSON.stringify([
-    furniture.map((f) => [f.id, f.name, f.width, f.length, f.height, f.x, f.y, f.rotation, f.color, f.groupId || null]),
+    furniture.map((f) => [f.id, f.name, f.width, f.length, f.height, f.x, f.y, f.rotation, f.color, f.groupId || null, EDGES.map((e) => edgeSpec(f, e))]),
     groups.map((g) => [g.id, g.name]),
   ]);
 }
@@ -974,7 +1081,10 @@ function deleteSnapshot(id) {
 function snapshotThumb(r, snap) {
   const m = 12;
   const body = snap.furniture.map((f) =>
-    `<rect x="${-f.width / 2}" y="${-f.length / 2}" width="${f.width}" height="${f.length}" fill="${f.color}" fill-opacity=".45" stroke="${f.color}" stroke-width="3" transform="translate(${f.x} ${f.y}) rotate(${f.rotation})"/>`).join('');
+    `<g transform="translate(${f.x} ${f.y}) rotate(${f.rotation})">
+      <rect x="${-f.width / 2}" y="${-f.length / 2}" width="${f.width}" height="${f.length}" fill="${f.color}" fill-opacity=".45" stroke="${f.color}" stroke-width="3"/>
+      ${drawBands(f, `thumb-${snap.id}-${f.id}`, [`fill="${f.color}"`])}
+    </g>`).join('');
   return `<svg class="snap-thumb" viewBox="${-m} ${-m} ${r.width + 2 * m} ${r.length + 2 * m}" aria-hidden="true">
     <rect x="0" y="0" width="${r.width}" height="${r.length}" fill="#fff" stroke="#3a3f47" stroke-width="${m}"/>${body}</svg>`;
 }

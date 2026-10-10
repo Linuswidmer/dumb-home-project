@@ -95,6 +95,40 @@
                 <label>Y center (cm) <input name="y" type="number" step="1"></label>
                 <label>Rotation (°) <input name="rotation" type="number" step="1"></label>
               </div>
+              <div class="field-label">Backrest / armrests <span class="hint-inline">depth in cm per side, as seen on the plan</span></div>
+              <div class="edge-editor">
+                <input name="edge-top" class="e-top" type="number" min="0" step="1" placeholder="–" title="Top side on the plan">
+                <input name="edge-left" class="e-left" type="number" min="0" step="1" placeholder="–" title="Left side on the plan">
+                <div class="edge-cell"><svg id="edgePreview" class="edge-preview" aria-hidden="true"></svg></div>
+                <input name="edge-right" class="e-right" type="number" min="0" step="1" placeholder="–" title="Right side on the plan">
+                <input name="edge-bottom" class="e-bottom" type="number" min="0" step="1" placeholder="–" title="Bottom side on the plan">
+              </div>
+              <div class="edge-lengths">
+                <div class="edge-len" data-side="top" hidden>
+                  <span>Top side</span>
+                  <input name="len-top" type="number" min="1" step="1" title="Length of the band along this side (cm)">
+                  <span>cm from</span>
+                  <select name="from-top"><option value="start">left</option><option value="end">right</option></select>
+                </div>
+                <div class="edge-len" data-side="right" hidden>
+                  <span>Right side</span>
+                  <input name="len-right" type="number" min="1" step="1" title="Length of the band along this side (cm)">
+                  <span>cm from</span>
+                  <select name="from-right"><option value="start">top</option><option value="end">bottom</option></select>
+                </div>
+                <div class="edge-len" data-side="bottom" hidden>
+                  <span>Bottom side</span>
+                  <input name="len-bottom" type="number" min="1" step="1" title="Length of the band along this side (cm)">
+                  <span>cm from</span>
+                  <select name="from-bottom"><option value="start">left</option><option value="end">right</option></select>
+                </div>
+                <div class="edge-len" data-side="left" hidden>
+                  <span>Left side</span>
+                  <input name="len-left" type="number" min="1" step="1" title="Length of the band along this side (cm)">
+                  <span>cm from</span>
+                  <select name="from-left"><option value="start">top</option><option value="end">bottom</option></select>
+                </div>
+              </div>
             </div>
             <p id="selectionInfo" class="note"></p>
             <div class="field-label">Color</div>
