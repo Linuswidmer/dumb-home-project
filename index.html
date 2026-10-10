@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Room Planner</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="loading">
+<div class="app">
+  <aside class="sidebar">
+    <header class="header">
+      <h1>Room Planner</h1>
+      <button type="button" id="saveBtn" class="save-btn" data-status="saved">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <path d="M5 3h11l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/>
+          <path d="M7 3v5h8V3M7 21v-7h10v7"/>
+        </svg>
+        <span id="saveLabel">Saved</span>
+      </button>
+    </header>
+
+    <details class="panel" data-panel="room">
+      <summary>
+        <span class="panel-title">Room</span>
+        <span class="panel-value" id="roomSummary">No room yet</span>
+      </summary>
+      <div class="panel-body">
+        <select id="roomSelect" class="needs-room"></select>
+        <div class="buttons">
+          <button type="button" id="newRoomBtn">New room</button>
+          <button type="button" id="editRoomBtn" class="needs-room">Edit room</button>
+          <button type="button" id="deleteRoomBtn" class="danger needs-room">Delete</button>
+        </div>
+        <div id="roomStats" class="stats"></div>
+      </div>
+    </details>
+
+    <details class="panel needs-room" data-panel="snapshots">
+      <summary>
+        <span class="panel-title">Snapshots</span>
+        <span class="panel-value" id="snapshotSummary"></span>
+      </summary>
+      <div class="panel-body">
+        <form id="snapshotForm" class="snapshot-form">
+          <input id="snapshotName" placeholder="Name, e.g. Sofa by the window">
+          <button type="submit" class="primary">Save snapshot</button>
+        </form>
+        <ul id="snapshotList"></ul>
+        <div id="snapshotNav" class="buttons">
+          <button type="button" id="prevSnapshotBtn">◀ Previous</button>
+          <button type="button" id="nextSnapshotBtn">Next ▶</button>
+        </div>
+      </div>
+    </details>
+
+    <details class="panel needs-room" data-panel="furniture" open>
+      <summary>
+        <span class="panel-title">Furniture</span>
+        <span class="panel-value" id="furnitureSummary"></span>
+      </summary>
+      <div class="panel-body">
+        <details id="addFurniture" class="add-furniture">
+          <summary class="add-toggle">+ Add furniture</summary>
+          <form id="addFurnitureForm">
+            <label>Name <input name="name" required placeholder="e.g. Sofa"></label>
+            <div class="grid3">
+              <label>Width (cm) <input name="width" type="number" min="1" step="1" required value="100"></label>
+              <label>Length (cm) <input name="length" type="number" min="1" step="1" required value="60"></label>
+              <label>Height (cm) <input name="height" type="number" min="1" step="1" required value="75"></label>
+            </div>
+            <button type="submit" class="primary">Add to room</button>
+          </form>
+        </details>
+
+        <section id="selectedSection" class="selected-card" hidden>
+          <h2 id="selectedTitle">Selected furniture</h2>
+          <form id="selectedForm" onsubmit="return false">
+            <div id="groupFields">
+              <label>Group name <input name="groupName"></label>
+              <div class="buttons tight">
+                <button type="button" id="selectWholeGroupBtn">Select whole group</button>
+                <button type="button" id="detachBtn">Remove from group</button>
+              </div>
+            </div>
+            <div id="singleFields">
+              <label>Name <input name="name" placeholder="no label"></label>
+              <div class="grid3">
+                <label>Width (cm) <input name="width" type="number" min="1" step="1"></label>
+                <label>Length (cm) <input name="length" type="number" min="1" step="1"></label>
+                <label>Height (cm) <input name="height" type="number" min="1" step="1"></label>
+              </div>
+              <div class="grid3">
+                <label>X center (cm) <input name="x" type="number" step="1"></label>
+                <label>Y center (cm) <input name="y" type="number" step="1"></label>
+                <label>Rotation (°) <input name="rotation" type="number" step="1"></label>
+              </div>
+            </div>
+            <p id="selectionInfo" class="note"></p>
+            <div class="field-label">Color</div>
+            <div id="palette" class="palette"></div>
+            <div class="buttons rot-buttons">
+              <button type="button" data-rot="-90" title="Rotate 90° counter-clockwise">⟲ 90°</button>
+              <button type="button" data-rot="-15" title="Rotate 15° counter-clockwise">⟲ 15°</button>
+              <button type="button" data-rot="15" title="Rotate 15° clockwise">⟳ 15°</button>
+              <button type="button" data-rot="90" title="Rotate 90° clockwise">⟳ 90°</button>
+            </div>
+            <div class="buttons">
+              <button type="button" id="groupBtn" class="primary" title="Ctrl+G">Group</button>
+              <button type="button" id="ungroupBtn" title="Ctrl+Shift+G">Ungroup</button>
+              <button type="button" id="duplicateBtn" title="Ctrl+D">Duplicate</button>
+              <button type="button" id="removeBtn" class="danger" title="Delete">Remove</button>
+            </div>
+          </form>
+        </section>
+
+        <ul id="furnitureList"></ul>
+      </div>
+    </details>
+
+    <details class="panel" data-panel="options">
+      <summary><span class="panel-title">Options</span></summary>
+      <div class="panel-body">
+        <label class="check"><input type="checkbox" id="snapToggle"> Snap (5 cm grid, 15° steps, stick to walls &amp; furniture)</label>
+        <label class="check"><input type="checkbox" id="gridToggle"> Show grid (10 cm / 1 m)</label>
+      </div>
+    </details>
+  </aside>
+
+  <main class="canvas-wrap">
+    <svg id="plan" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div id="emptyState" class="empty">
+      <p>No room yet.</p>
+      <button type="button" class="primary" id="emptyNewRoomBtn">Create your first room</button>
+    </div>
+    <div id="hint" class="hint">
+      Drag to move · drag ● to rotate · <kbd>R</kbd> rotate 90° (<kbd>Shift</kbd> 15°) ·
+      arrows nudge 1 cm (<kbd>Shift</kbd> 10 cm) · <kbd>Del</kbd> remove<br>
+      <kbd>Shift</kbd>+click select several · <kbd>Ctrl</kbd>+<kbd>G</kbd> group ·
+      double-click a grouped piece to edit it alone
+    </div>
+  </main>
+</div>
+
+<dialog id="roomDialog">
+  <form id="roomForm">
+    <h2 id="roomDialogTitle" class="dialog-title">New room</h2>
+    <label>Name <input name="name" required></label>
+    <div class="grid3">
+      <label>Width (cm, left ↔ right) <input name="width" type="number" min="1" step="1" required></label>
+      <label>Length (cm, top ↕ bottom) <input name="length" type="number" min="1" step="1" required></label>
+      <label>Ceiling height (cm) <input name="height" type="number" min="1" step="1" required></label>
+    </div>
+
+    <h3>Doors &amp; windows</h3>
+    <p class="note">
+      Offset is measured along the wall from its start: from the <b>left</b> corner on the top/bottom walls,
+      from the <b>top</b> corner on the left/right walls. All values in cm.
+    </p>
+    <div class="table-wrap">
+      <table class="openings">
+        <thead>
+          <tr><th>Type</th><th>Wall</th><th>Offset</th><th>Width</th><th>Height</th><th>Sill</th><th>Hinge side</th><th>Opens</th><th></th></tr>
+        </thead>
+        <tbody id="openingRows"></tbody>
+      </table>
+    </div>
+    <p id="noOpenings" class="note">No doors or windows yet.</p>
+    <div class="buttons">
+      <button type="button" id="addDoorBtn">+ Door</button>
+      <button type="button" id="addWindowBtn">+ Window</button>
+    </div>
+
+    <p id="roomError" class="error"></p>
+    <div class="buttons end">
+      <button type="button" id="cancelRoomBtn">Cancel</button>
+      <button type="submit" class="primary">Save room</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>
