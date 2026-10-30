@@ -17,6 +17,15 @@ class Rect:
 		return (self.x < other.x + other.width and other.x < self.x + self.width
 				and self.y < other.y + other.height and other.y < self.y + self.height)
 
+	def clip(self, other):
+		"""The overlap of both rects; like pygame, a 0x0 rect at self's position if there is none."""
+		left, top = max(self.x, other.x), max(self.y, other.y)
+		right = min(self.x + self.width, other.x + other.width)
+		bottom = min(self.y + self.height, other.y + other.height)
+		if right <= left or bottom <= top:
+			return Rect(self.x, self.y, 0, 0)
+		return Rect(left, top, right - left, bottom - top)
+
 	@property
 	def rect(self):  # lets pygame.draw use it in the local debug window (main() below)
 		return (self.x, self.y, self.width, self.height)
