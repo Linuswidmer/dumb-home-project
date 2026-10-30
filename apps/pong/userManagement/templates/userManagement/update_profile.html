@@ -1,0 +1,12 @@
+
+
+{% block content %}
+<div class="block">
+    <form method="post", enctype="multipart/form-data">
+        {% csrf_token %}
+        {{form}}
+        <input class="btn buttonblue" type="submit" value="Update">
+    </form>
+</div>
+
+{% endblock %}

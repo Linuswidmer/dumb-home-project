@@ -1,0 +1,32 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Pong{% endblock %}</title>
+    <link rel="shortcut icon" type="image/png" href="{% static 'pong_online/pong_logo.png' %}"/>
+    <!-- Add your CSS and JavaScript links here -->
+    {% block styles %}
+        <link rel="stylesheet" href="{% static 'pong_online/style.css' %}">
+        <link href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+        {% endblock %}
+        <!-- Add your JavaScript imports and scripts here -->
+        <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.4/dist/umd/popper.min.js"></script>
+        <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+        <script type="module" src="{% static 'userManagement/main.js' %}" ></script>
+		<script>//console.log("all profiles url html", "{% url 'userManagement:profile_list' %}")</script>
+        {% block extra_scripts %}
+        {% endblock extra_scripts %}
+</head>
+<body>
+	<div id="content"></div>
+      <!-- Footer -->
+      <!-- {% include 'includes/footer.html' %} -->
+      
+      <!-- Bootstrap JS and dependencies (jQuery and Popper.js) -->
+
+    </body>
+</html>

@@ -1,0 +1,11 @@
+
+{% load static %}
+
+    {% include 'includes/navbar.html' %}
+
+    {% csrf_token %}
+
+    
+    
+	<pong-game data-username="{{ user.username }}"></pong-game>
+

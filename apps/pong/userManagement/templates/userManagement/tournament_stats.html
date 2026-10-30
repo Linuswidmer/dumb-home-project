@@ -1,0 +1,9 @@
+{% include 'includes/navbar.html' %}
+<h1 id="tm-name" class="text-center text-dark my-4 stylish-font">Tournament: {{ tm_name }}</h1>
+<div class="tournament-container">
+    <!-- Tournament rounds -->
+    <div class="rounds" id="rounds">
+        <!-- Rounds will be dynamically added here -->
+    </div>
+</div>
+<pong-tournament-stats tournamentData="{{ tm_data }}"></pong-tournament-stats>

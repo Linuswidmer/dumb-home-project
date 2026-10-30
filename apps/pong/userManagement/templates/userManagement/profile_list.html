@@ -1,0 +1,45 @@
+<!-- dwitter/templates/dwitter/profile_list.html -->
+
+{% include 'includes/navbar.html' %}
+
+<div class="container my-4">
+    <div class="card">
+        <div class="card-header text-center text-white bg-purple">
+            <h4>All profiles</h4>
+        </div>
+        <div class="card-body">
+            <div class="row justify-content-center">
+                <div class="col-md-10">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <tbody>
+                                {% for user in registered_users %}
+                                <tr class="profileOtherBtn">
+                                    <td class="text-center">
+                                        <img src="{{ user.profile.avatar.url }}" alt="avatar" class="rounded-circle" style="width: 50px; height: 50px;">
+                                    </td>
+                                    <td class="text-center">
+                                        <a class="btn buttonblue" href="{% url 'userManagement:profile' user.username %}" data-link>
+                                            {{ user.username }}
+                                        </a>
+                                    </td>
+                                    <td>
+                                        {% if user.profile.logged_in is True  %}
+                                        <span style="color: green; font-size: 0.8em;">●</span> <!-- Green dot -->
+                                        {% else %}
+                                        <span style="color: red; font-size: 0.8em;">●</span> <!-- Red dot -->
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<div id="modalContainer"></div>
+
+    

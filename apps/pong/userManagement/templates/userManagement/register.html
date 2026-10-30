@@ -1,0 +1,11 @@
+
+{% block content %}
+<div class="block">
+    <form method="post" id="registerModalContainerForm">
+        {% csrf_token %}
+        {{form}}
+        <input type="submit" value="Register" class="button">
+    </form>
+</div>
+
+{% endblock %}

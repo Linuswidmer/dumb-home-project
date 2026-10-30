@@ -1,0 +1,356 @@
+<!-- dwitter/templates/dwitter/profile.html -->
+ 
+{% load static %}
+
+{% include 'includes/navbar.html' %}
+
+
+<div class="container">
+    <div class="row">
+        <!-- Column for profile picture -->
+        <div class="col">
+            <div class="d-flex justify-content-center">
+                <img class="rounded-circle profile-image" src="{{ user.profile.avatar.url }}" alt="Placeholder image">
+            </div>
+        </div>
+
+        <!-- Column for name and logged in status -->
+        <div class="col">
+            <h2 class="text-center my-4 stylish-font"> 
+                {{user.username}}'s Profile 
+                {% if user.profile.logged_in is True  %}
+                <span style="color: rgb(4, 177, 4); margin-left: 5px; font-size: 0.5em;">Online</span>
+                {% else %}
+                <span style="color: red; margin-left: 5px; font-size: 0.5em;">Offline</span>    
+                {% endif %}
+            </h2>
+        </div>
+
+        <!-- Column for logout and all profiles buttons -->
+        <div class="col">
+            <div style="width: 200px; margin: 20px;">
+                <button type="button" class="btn buttonblue" id="allProfilesBtn">All Profiles</button>
+            </div>
+            {% if user != request.user %}
+            <div style="width: 200px; margin: 20px;">
+                <div class="buttons has-addons">
+                    {% if user.profile in request.user.profile.follows.all %}
+                    <button class="button is-danger btn btn-danger btn-block" id="followBtn" name="follow" value="unfollow">Unfollow</button>
+                    {% else %}
+                    <button class="button is-success btn btn-success btn-block" id="followBtn" name="follow" value="follow">Follow</button>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="container my-4">
+    <div class="card">
+        <div class="card-header text-center text-white bg-purple">
+            <h4>Personal information</h4>
+        </div>
+        <div class="card-body">
+            <div class="row justify-content-center">
+                <div class="col-md-10">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead class>
+                                <tr>
+                                    <th class="text-center">Username</th>
+                                    <th class="text-center">First Name</th>
+                                    <th class="text-center">Last Name</th>
+                                    <th class="text-center">Registration Date</th>
+                                    <th class="text-center">Last Login</th>
+                                    <th class="text-center">ID</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td class="text-center">{{user.username}}</td>
+                                    <td class="text-center">{{user.first_name}}</td>
+                                    <td class="text-center">{{user.last_name}}</td>
+                                    <td class="text-center">{{user.date_joined}}</td>
+                                    <td class="text-center">{{user.last_login}}</td>
+                                    <td class="text-center">{{user.id}}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="container my-4">
+    <div class="card">
+        <div class="card-header text-center text-white bg-purple">
+            <h4>Player Stats</h4>
+        </div>
+        <div class="card-body">
+            <div class="row justify-content-center">
+                <div class="col-md-10">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead class>
+                                <tr>
+                                    <th class="text-center">Total Games</th>
+                                    <th class="text-center">Total Game Time</th>
+                                    <th class="text-center">Total Tournaments</th>
+                                    <th class="text-center">Best Tournament Rank</th>
+                                    <th class="text-center">Total Hits</th>
+                                    <th class="text-center">Total Misses</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td class="text-center">{{ stats.totalGames }}</td>
+                                    <td class="text-center">{{ stats.totalGameTime }}</td>
+                                    <td class="text-center">{{ stats.totalTournaments }}</td>
+                                    <td class="text-center">{{ stats.bestTournamentRank }}</td>
+                                    <td class="text-center">{{ stats.totalHits }}</td>
+                                    <td class="text-center">{{ stats.totalMisses }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chart-titles">
+                <h3>Single Games</h3>
+                <h3>Tournaments</h3>
+              </div>
+            <div class="charts">
+                <div class="chart">
+                    <div class="bar-container">
+                        <div id="winsSingle" class="bar" style="height: 0%; background-color: green;"></div>
+                        <div id="winsSingleDesc" class="description"></div>
+                    <div class="label">Wins</div>
+                  </div>
+                  <div class="bar-container">
+                    <div id="lossesSingle" class="bar" style="height: 0%; background-color: red;"></div>
+                    <div id="lossesSingleDesc" class="description"></div>
+                    <div class="label">Losses</div>
+                  </div>
+                </div>
+                <div class="chart">
+                  <div class="bar-container">
+                    <div id="winsTournament" class="bar" style="height: 0%; background-color: green;"></div>
+                    <div id="winsTournamentDesc" class="description"></div>
+                    <div class="label">Wins</div>
+                  </div>
+                  <div class="bar-container">
+                      <div id="lossesTournament" class="bar" style="height: 0%; background-color: red;"></div>
+                      <div id="lossesTournamentDesc" class="description"></div>
+                    <div class="label">Losses</div>
+                  </div>
+                </div>
+              </div>
+        </div>
+</div>
+
+<div class="container my-4">
+    <div class="card">
+        <div class="card-header text-center text-white bg-purple">
+            <h4>Game Stats</h4>
+            <div class="d-inline-block float-end">
+                <button class="btn buttonblue" type="button" id="localGamesButton">
+                    Local Games
+                </button>
+                <button class="btn buttonblue" type="button" id="remoteGamesButton">
+                    Remote Games
+                </button>
+                <button class="btn buttonblue" type="button" id="aiGamesButton">
+                    AI Games
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="row justify-content-center">
+                <div class="col-md-10">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead class>
+                                <tr>
+                                    <th class="text-center">AVG Points Per Game</th>
+                                    <th class="text-center">Best Game Score</th>
+                                    <th class="text-center">Highest Winning Streak</th>
+                                    <th class="text-center">Longest Ball Rally</th>
+                                </tr>
+                            </thead>
+                                <tbody id="gameStats">
+                                    <tr>
+                                        <td class="text-center"></td>
+                                        <td class="text-center"></td>
+                                        <td class="text-center"></td>
+                                        <td class="text-center"></td>
+                                    </tr>
+                                </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<div class="container my-4">
+    <div class="card">
+        <div class="card-header text-center text-white bg-purple">
+            <h4>All Games</h4>
+        </div>
+        <div class="card-body">
+            <div class="row justify-content-center">
+                <div class="col-md-10">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th class="text-center">ID</th>
+                                    <th class="text-center">Date & Time</th>
+                                    <th class="text-center">Opponent</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for gld in stats.gameListData %}
+                                <tr {% if forloop.counter > 10 %}class="hideSingleGame"; style="display: none{% endif %}">                                    
+                                    <td class="text-center"><a class="btn buttonblue" href="/singleGameStats/{{ gld.game.matchName }}/" data-link>{{ gld.game.matchName }}</a></td>
+                                    <td class="text-center">{{ gld.game.matchDate }} {{ gld.game.matchTime }} </td>
+                                    {% if gld.opponentGameStats.user == None %}
+										<td class="text-center">Guest</td>
+									{% elif gld.opponentGameStats.user.username == "Local" %}
+										<td class="text-center">Local Opponent</td>
+									{% else %}
+										<td class="text-center"><a class="btn buttonblue" href="/profile/{{ gld.opponentGameStats.user }}" data-link>{{ gld.opponentGameStats.user }}</a></td>
+									{% endif %}
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                        <button id="expand-btn" class="btn btn-primary" {% if stats.gameListData|length <= 10 %} style="display: none"{% endif %}>Expand</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="container my-4">
+    <div class="card">
+        <div class="card-header text-center text-white bg-purple">
+            <h4>All Tournaments</h4>
+        </div>
+        <div class="card-body">
+            <div class="row justify-content-center">
+                <div class="col-md-10">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead class>
+                                <tr>
+                                    <th class="text-center">ID</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for tm in stats.tournaments %}
+                                <tr>
+                                    <td class="text-center"><a class="btn buttonblue" href="/tournament_stats/{{ tm.tournament_id }}/" data-link> {{ tm.tournament_id }}</a></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="container my-4">
+    <div class="card">
+        <div class="card-header text-center text-white bg-purple">
+            <h4>{{user.username}} follows</h4>
+        </div>
+        <div class="card-body">
+            <div class="row justify-content-center">
+                <div class="col-md-10">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <tbody>
+                                {% for following in user.profile.follows.all %}
+                                <tr>
+                                    <td class="text-center"><a class="btn buttonblue" href="{% url 'userManagement:profile' following.user.username %}" data-link>{{ following }}</a></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="container my-4">
+    <div class="card">
+        <div class="card-header text-center text-white bg-purple">
+            <h4>{{user.username}} is followed by</h4>
+        </div>
+        <div class="card-body">
+            <div class="row justify-content-center">
+                <div class="col-md-10">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <tbody>
+                                {% for follower in user.profile.followed_by.all %}
+                                <tr>
+                                    <td class="text-center"><a class="btn buttonblue" href="{% url 'userManagement:profile' follower.user.username %}" data-link>{{ follower }} </a></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if user == request.user %}
+<div class="d-flex justify-content-center">
+    <button type="button" class="btn buttonblue" id="profilePictureBtn">Change Profile Picture</button>
+    <button type="button" class="btn buttonblue" id="updateProfileBtn">Update Profile Info</button>
+    <button type="button" class="btn buttonblue" id="passwordBtn">Change Password</button>
+    {% endif %}
+    <div id="modalContainer"></div>
+  </div>
+</div>
+
+
+<pong-profile 
+    data-username="{{user.username}}"
+    data-followUrl="{% url 'userManagement:follow' username=user.username %}"
+	data-allProfilesUrl="{% url 'userManagement:profile_list' %}"
+	data-updateProfileUrl="{% url 'userManagement:update_profile' %}"
+    data-updateUserUrl="{% url 'userManagement:update_user' %}"
+    data-changePasswordUrl="{% url 'userManagement:change_password' %}"
+	data-totalWins="{{ stats.totalWins }}"
+	data-totalDefeats="{{ stats.totalDefeats }}"
+	data-wonTournaments="{{ stats.wonTournaments }}"
+	data-totalTournaments="{{ stats.totalTournaments }}"
+	data-localAveragePointsPerGame="{{ stats.gameTypeStats.local.averagePointsPerGame }}"
+    data-localBestGameScore="{{ stats.gameTypeStats.local.bestGameScore }}"
+    data-localHighestWinningStreak="{{ stats.gameTypeStats.local.highestWinningStreak }}"
+    data-localLongestBallRally="{{ stats.gameTypeStats.local.longestBallRally }}"
+    data-remoteAveragePointsPerGame="{{ stats.gameTypeStats.remote.averagePointsPerGame }}"
+    data-remoteBestGameScore="{{ stats.gameTypeStats.remote.bestGameScore }}"
+    data-remoteHighestWinningStreak="{{ stats.gameTypeStats.remote.highestWinningStreak }}"
+    data-remoteLongestBallRally="{{ stats.gameTypeStats.remote.longestBallRally }}"
+    data-aiAveragePointsPerGame="{{ stats.gameTypeStats.ai.averagePointsPerGame }}"
+    data-aiBestGameScore="{{ stats.gameTypeStats.ai.bestGameScore }}"
+    data-aiHighestWinningStreak="{{ stats.gameTypeStats.ai.highestWinningStreak }}"
+    data-aiLongestBallRally="{{ stats.gameTypeStats.ai.longestBallRally }}"
+	></pong-profile>
