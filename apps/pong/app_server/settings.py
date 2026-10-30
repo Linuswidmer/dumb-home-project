@@ -5,6 +5,9 @@ from dotenv import load_dotenv
 load_dotenv()
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+# Everything written at runtime (database, uploads, collected static files) lives
+# outside the repo, so a git pull never touches it. See apps/pong/run.sh.
+DATA_DIR = Path(os.environ.get("PONG_DATA_DIR", BASE_DIR / "data"))
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
 DEBUG = os.environ.get("DJANGO_DEBUG", "False") == "True"
@@ -34,6 +37,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # serves /static/ (nginx did that before)
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -69,24 +73,20 @@ ASGI_APPLICATION = 'app_server.routing.application'
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
 
+# SQLite instead of Postgres: one small home server, no separate database process.
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ.get('POSTGRES_NAME'),
-        'USER': os.environ.get('POSTGRES_USER'),
-        'PASSWORD': os.environ.get('POSTGRES_PASSWORD'),
-        'HOST': os.environ.get('POSTGRES_HOST'),
-        'PORT': 5432,
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': DATA_DIR / 'pong.sqlite3',
+        'OPTIONS': {'timeout': 20},  # wait for a concurrent write instead of failing
     }
 }
 
-# Channels
+# Channels: in-memory instead of Redis. Fine as long as everything runs in one
+# daphne process, which run.sh makes sure of — only the consumers use it.
 CHANNEL_LAYERS = {
     "default": {
-        "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {
-            "hosts": [(os.environ.get('REDIS_HOST'), os.environ.get('REDIS_PORT'))],
-        },
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
     },
 }
 
@@ -135,7 +135,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.0/howto/static-files/
 
 STATIC_URL = 'static/'
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATIC_ROOT = DATA_DIR / 'static'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
@@ -147,8 +147,11 @@ LOGOUT_REDIRECT_URL = 'userManagement:index'
 LOGIN_REDIRECT_URL = 'userManagement:display_lobby'
 ACCOUNT_REDIRECT_URL = 'userManagement:index'
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+# Only ever served over HTTPS (daphne terminates TLS itself, see run.sh).
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
 SITE_ID = 1
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_ROOT = DATA_DIR / 'media'  # seeded from apps/pong/media by run.sh
 MEDIA_URL = '/media/'
 
 OAUTH_SERVER_BASEURL = 'https://api.intra.42.fr'

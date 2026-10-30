@@ -10,13 +10,18 @@
 
 Everything runs in this one process with only the standard library and Pillow.
 No authentication — intended for a trusted home network only.
+
+Pong (https://<pi>:8443/, apps/pong) is a Django app and runs as its own
+service; this server only links to it from the landing page.
 """
 from __future__ import annotations
 
 import argparse
 import threading
+from html import escape
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from apps.printer import routes as printer
 from apps.printer.m02_print import ADDR
@@ -30,13 +35,23 @@ APPS = {
     "/rooms": ("Room planner", "Lay out furniture in a room", rooms.ROUTES),
     "/transit": ("Departures", "Next trains and buses from Erkstraße and Rathaus Neukölln", transit.ROUTES),
 }
+# Apps running as their own service on their own HTTPS port, only linked from here.
+SEPARATE_APPS = {
+    # port: (title, description)
+    8443: ("Pong", "Play pong against a friend or the AI (apps/pong, its own service)"),
+}
 DEFAULT_DATA_DIR = Path.home() / ".local" / "share" / "dumb-home-project"
 
 
 def landing_page(req) -> None:
+    # Link separate apps on the same host name the page was opened with.
+    hostname = urlsplit("//" + req.headers.get("Host", "localhost")).hostname or "localhost"
+    if ":" in hostname:
+        hostname = f"[{hostname}]"  # IPv6 literal
+    links = [(f"{prefix}/", title, description) for prefix, (title, description, _) in APPS.items()]
+    links += [(f"https://{hostname}:{port}/", title, description) for port, (title, description) in SEPARATE_APPS.items()]
     items = "\n".join(
-        f'<li><a href="{prefix}/">{title}</a><span>{description}</span></li>'
-        for prefix, (title, description, _) in APPS.items()
+        f'<li><a href="{escape(href)}">{title}</a><span>{description}</span></li>' for href, title, description in links
     )
     html = f"""<!doctype html>
 <html lang="en">

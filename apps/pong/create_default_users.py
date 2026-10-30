@@ -9,8 +9,10 @@ load_dotenv()
 
 social_app_name = '42'
 social_app_exists = SocialApp.objects.filter(name=social_app_name).exists()
-client_id = os.getenv('OAUTH_CLIENT_ID')
-client_secret = os.getenv('OAUTH_CLIENT_SECRET')
+# The login page's "Login with 42" button needs this app to exist. Without a
+# registered 42 OAuth app the button just fails at intra; local accounts still work.
+client_id = os.getenv('OAUTH_CLIENT_ID') or 'not-configured'
+client_secret = os.getenv('OAUTH_CLIENT_SECRET') or ''
 
 if not social_app_exists:
     site = Site.objects.all()[0]

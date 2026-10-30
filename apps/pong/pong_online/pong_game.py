@@ -1,9 +1,25 @@
-import pygame
 import time
 import random
 import math
 from asgiref.sync import sync_to_async, async_to_sync
 import asyncio
+
+
+class Rect:
+	"""The bit of pygame.Rect the server-side game needs, so the server doesn't
+	depend on pygame (and SDL). Like pygame, coordinates are truncated to whole
+	pixels and rects that only touch don't collide."""
+
+	def __init__(self, x, y, width, height):
+		self.x, self.y, self.width, self.height = int(x), int(y), int(width), int(height)
+
+	def colliderect(self, other):
+		return (self.x < other.x + other.width and other.x < self.x + self.width
+				and self.y < other.y + other.height and other.y < self.y + self.height)
+
+	@property
+	def rect(self):  # lets pygame.draw use it in the local debug window (main() below)
+		return (self.x, self.y, self.width, self.height)
 
 
 ############## CONSTANTS ###############
@@ -38,7 +54,7 @@ class Ball(Entity):
 		self.radius = radius
 		self.color = color
 		self.tempMaxDy = BALL_DY
-		self.hitbox = pygame.Rect(self.x - self.radius, self.y - self.radius,
+		self.hitbox = Rect(self.x - self.radius, self.y - self.radius,
 							2 * self.radius, 2 * self.radius)
 		self.last_collided_paddle = None
 		self.random_spawn()
@@ -46,7 +62,7 @@ class Ball(Entity):
 	def update_pos(self, x: int, y: int):
 		self.x = x
 		self.y = y
-		self.hitbox = pygame.Rect(self.x - self.radius, self.y - self.radius,
+		self.hitbox = Rect(self.x - self.radius, self.y - self.radius,
 							2 * self.radius, 2 * self.radius)
 
 	def random_spawn(self):
@@ -98,7 +114,7 @@ class Ball(Entity):
 		paddle = rightPaddle if self.dx > 0 else leftPaddle
 
 		# Create a new rect for the ball's new position
-		new_ball_rect = pygame.Rect(new_x - self.radius, new_y - self.radius, 2 * self.radius, 2 * self.radius)
+		new_ball_rect = Rect(new_x - self.radius, new_y - self.radius, 2 * self.radius, 2 * self.radius)
 
 		# Check if the new ball rect collides with the paddle's rect
 		if new_ball_rect.colliderect(paddle.hitbox):
@@ -172,13 +188,13 @@ class Paddle(Entity):
 		self.width = width
 		self.height = height
 		self.color = color
-		self.hitbox = pygame.Rect(self.x, self.y,self.width, self.height)
+		self.hitbox = Rect(self.x, self.y,self.width, self.height)
 		self.score = 0
 		self.direction = 0
 
 	def update_pos(self, y: int):
 		self.y = y
-		self.hitbox = pygame.Rect(self.x, self.y,self.width, self.height)
+		self.hitbox = Rect(self.x, self.y,self.width, self.height)
 
 	def move(self, dt, direction) -> None:
 		self.direction = direction
@@ -383,4 +399,5 @@ def main():
 		#print(entity_data)
 
 if __name__ == "__main__":
+	import pygame  # only the local debug window needs it, not the server
 	main()

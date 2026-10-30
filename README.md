@@ -10,6 +10,7 @@ process** with only the standard library and Pillow — no Flask, no venv.
 | `https://<pi>:8765/rooms/` | room planner | `apps/rooms/` |
 | `https://<pi>:8765/transit/` | BVG departures (Erkstraße, U Rathaus Neukölln) | `apps/transit/` |
 | `http://<pi>:5001/` | the same departures, for the e-reader | `apps/transit/` |
+| `https://<pi>:8443/` | pong (Django, its own service — see [apps/pong](apps/pong/README.md)) | `apps/pong/` |
 
 No authentication — only run this on a trusted home network.
 
@@ -68,8 +69,10 @@ cp ~/m02-thermal-printer/cert.pem ~/m02-thermal-printer/key.pem ~/.local/share/d
 scp ~/development/room-planner/data.json <pi>:.local/share/dumb-home-project/rooms.json
 ```
 
+For pong, also run `apps/pong/install.sh` once (see [apps/pong](apps/pong/README.md)).
+
 After pushing changes, apply them on the Pi with `./deploy.sh` (`git pull` and
-restart the service).
+restart the services).
 
 ## Adding an app
 
@@ -84,3 +87,6 @@ work under the prefix. `req` is the request handler from `web.py`, with
 `apps/printer`, `apps/rooms` and `apps/transit` were merged in with their full
 git history from `m02-thermal-printer`, `room-planner` and
 [`alexehrlich/sonnenallez`](https://github.com/alexehrlich/sonnenallez).
+`apps/pong` was copied from
+[`42_transcendence`](https://github.com/Linuswidmer/42_transcendence) at
+`49dec6e` *without* its history, because that history contains committed secrets.
