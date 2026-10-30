@@ -26,7 +26,20 @@ from pong_online.pong_game import Pong
 from pong_online.lobby import Lobby
 
 from enum import Enum
+from urllib.parse import urlsplit
 
+
+def same_origin(scope):
+	"""Whether a WebSocket was opened by a page from this site (Origin matches Host).
+
+	Browsers always send Origin; clients without one (scripts) aren't browsers carrying
+	someone else's session cookie, so they're let through and identified by their
+	cookie like everyone else."""
+	headers = dict(scope.get("headers", []))
+	origin = headers.get(b"origin", b"").decode("latin-1")
+	if not origin:
+		return True
+	return urlsplit(origin).netloc == headers.get(b"host", b"").decode("latin-1")
 
 
 class apiConsumer(AsyncWebsocketConsumer):
@@ -273,6 +286,7 @@ class MultiplayerConsumer(AsyncWebsocketConsumer):
 		MultiplayerConsumer.n_connected_websockets += 1
 		#print("number of connected websockets:", MultiplayerConsumer.n_connected_websockets)
 		
+		self.user = None  # set in connect() from the session; None = not logged in
 		self.username = ""
 		self.game_group_name = ""
 		self.tournament_group_name = ""
@@ -292,6 +306,17 @@ class MultiplayerConsumer(AsyncWebsocketConsumer):
 	#is called when connection from client to websocket (set up in routing.py) is
 	#established. is for now established when user enters the lobby site
 	async def connect(self):
+		# Who the player is comes from the session cookie of this WebSocket's handshake
+		# (AuthMiddlewareStack), never from what the client says. Because the cookie
+		# decides, refuse connections opened by pages from other sites.
+		if not same_origin(self.scope):
+			await self.close(code=4403)
+			return
+		user = self.scope.get("user")
+		if user is not None and user.is_authenticated:
+			self.user = user
+			self.username = user.username
+
 		#accept ws connection
 		await self.accept()
 
@@ -329,8 +354,16 @@ class MultiplayerConsumer(AsyncWebsocketConsumer):
 
 		message_type = json_from_client.get("type", "")
 
-		if message_type == "username":
-			self.username = json_from_client.get("username", "")
+		# Connections without a logged-in user (e.g. opened on the login page) can't play.
+		# The page reloads after login/logout, which opens a new, authenticated one.
+		if self.user is None:
+			return
+
+		# The client still sends its username, but the server already knows who this is.
+		# Only re-read the name: it can be changed on the profile page.
+		if message_type == "username" and not self.in_game:
+			await database_sync_to_async(self.user.refresh_from_db)(fields=["username"])
+			self.username = self.user.username
 
 		# Mark the player as logged in once, when they identify themselves. This used to
 		# run on every message (every keypress): a DB read plus a write, and this consumer
@@ -452,9 +485,18 @@ class MultiplayerConsumer(AsyncWebsocketConsumer):
 			await self.channel_layer.group_send(
 				self.game_group_name,
 				{"type": "process_keypress",
-				"playerId": json_from_client.get("playerId", ""),
+				"playerId": self.keypress_player(json_from_client.get("playerId")),
 	 			"action": json_from_client.get("action", "")},
 			)
+
+	def keypress_player(self, requested):
+		"""Whose paddle a keypress from this connection moves: always this connection's
+		player, except in a local game, where two people share one keyboard and the
+		client picks the second paddle ('Local')."""
+		if (requested == "Local" and self.match is not None and self.match.modus == "local"
+				and self.username in self.match.registered_players):
+			return "Local"
+		return self.username
 
 	async def set_is_playing(self, event):
 		self.is_playing = True
@@ -815,6 +857,9 @@ class MultiplayerConsumer(AsyncWebsocketConsumer):
 		
 		action = keypress["action"]
 		player_id = keypress["playerId"]
+		# e.g. a spectator's keypress: ignore it instead of crashing the host's consumer
+		if player_id not in self.match.game_data:
+			return
 		if action == "moveUp":
 			self.match.game_data[player_id]["moveUp"] = True
 		elif action == "moveDown":

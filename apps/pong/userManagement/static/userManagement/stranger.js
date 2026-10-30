@@ -1,4 +1,4 @@
-import {router, getCookie} from "./main.js"
+import {getCookie} from "./main.js"
 
 class Stranger extends HTMLElement {
     constructor() {
@@ -159,8 +159,9 @@ function renderForm(url, containerId, title) {
 const csrftoken = getCookie('csrftoken');
  // Function to load logged-in content after successful login
 function loadLoggedInContent() {
-	//history.pushState("", "", "/");
-	router("/");
+	// A full reload, not router("/"): the game WebSocket learns who you are from the
+	// session cookie when it connects, so it has to reconnect after logging in.
+	window.location.assign("/");
 }
 
 function extractErrorMessage(errorMessage) {

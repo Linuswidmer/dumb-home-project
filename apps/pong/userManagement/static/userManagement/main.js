@@ -184,7 +184,8 @@ window.addEventListener("click", e => {
 		.then(response => {
 			if (response.ok) {
 				//console.log("logout successful");
-        		router(e.target.href.replace(e.target.origin, '')); //@LEON: das brauchen wir ja dann nicht mehr 
+				// Full reload so the game WebSocket reconnects without the old session.
+				window.location.assign(e.target.href);
 			} else {
 				console.error("Logout failed");
 			}
