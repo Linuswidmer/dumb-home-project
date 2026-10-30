@@ -331,8 +331,12 @@ class MultiplayerConsumer(AsyncWebsocketConsumer):
 
 		if message_type == "username":
 			self.username = json_from_client.get("username", "")
-		
-		if self.username:
+
+		# Mark the player as logged in once, when they identify themselves. This used to
+		# run on every message (every keypress): a DB read plus a write, and this consumer
+		# can't forward game frames while it waits, which on the Pi's SQLite/SD card
+		# stalled the game for up to ~0.9s.
+		if self.username and message_type == "username":
 			try:
 				user = await sync_to_async(User.objects.select_related('profile').get)(username=self.username)
 				profile = user.profile

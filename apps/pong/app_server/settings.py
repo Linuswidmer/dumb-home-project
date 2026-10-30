@@ -78,7 +78,13 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': DATA_DIR / 'pong.sqlite3',
-        'OPTIONS': {'timeout': 20},  # wait for a concurrent write instead of failing
+        'OPTIONS': {
+            'timeout': 20,  # wait for a concurrent write instead of failing
+            # WAL + synchronous=NORMAL: a commit no longer waits for the SD card to flush
+            # (with the default rollback journal one took 30 ms, sometimes 700 ms). A power
+            # cut can lose the last few commits, but never corrupts the database.
+            'init_command': 'PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;',
+        },
     }
 }
 
