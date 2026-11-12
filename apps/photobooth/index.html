@@ -1,0 +1,718 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e0d0c">
+<title>Photobooth</title>
+<style>
+  :root {
+    --bg: #0e0d0c;
+    --surface: #1a1817;
+    --surface-2: #262321;
+    --line: #34302d;
+    --text: #f3efe9;
+    --muted: #8f8a83;
+    --accent: #e8423f;
+    --accent-deep: #b3201d;
+    --paper: #fbfaf7;
+    --ok: #3fbf6a;
+    --bad: #e8423f;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+  button { font: inherit; color: inherit; }
+  svg { display: block; }
+
+  .booth {
+    height: 100dvh;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    gap: 16px;
+  }
+
+  /* ---------- top bar ---------- */
+  .topbar {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 12px;
+  }
+  .wordmark {
+    font-size: 1.05rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .wordmark .bulb {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin-right: 10px;
+    vertical-align: 2px;
+    box-shadow: 0 0 10px var(--accent);
+  }
+  .modes {
+    display: inline-flex;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 3px;
+  }
+  .modes button {
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    padding: 7px 16px;
+    border-radius: 999px;
+    font-size: 0.88rem;
+    cursor: pointer;
+  }
+  .modes button[aria-pressed="true"] { background: var(--surface-2); color: var(--text); }
+  .topright { display: flex; justify-content: flex-end; align-items: center; gap: 10px; }
+  .printer {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 0.82rem; color: var(--muted); white-space: nowrap;
+  }
+  .printer .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
+  .ghost {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    display: grid; place-items: center;
+    cursor: pointer;
+    color: var(--text);
+  }
+  .ghost:hover { background: var(--surface-2); }
+  .ghost:disabled { opacity: 0.35; cursor: default; }
+
+  /* ---------- stage ---------- */
+  .stage {
+    min-height: 0;
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    justify-content: center;
+  }
+  .viewfinder {
+    position: relative;
+    aspect-ratio: 3 / 2;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: #000;
+    box-shadow: 0 0 0 1px var(--line), 0 20px 60px rgba(0,0,0,0.5);
+  }
+  @supports not (aspect-ratio: 3 / 2) { .viewfinder { width: 100%; } }
+  .viewfinder video {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    filter: grayscale(1) contrast(1.15);
+  }
+  .viewfinder.mirrored video { transform: scaleX(-1); }
+
+  .countdown {
+    position: absolute; inset: 0;
+    display: grid; place-items: center;
+    font-size: min(38vh, 30vw);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: #fff;
+    text-shadow: 0 6px 40px rgba(0,0,0,0.6);
+    pointer-events: none;
+  }
+  .countdown span { animation: pop 1s ease-out both; }
+  @keyframes pop {
+    0%   { transform: scale(1.5); opacity: 0; }
+    15%  { transform: scale(1);   opacity: 1; }
+    80%  { opacity: 1; }
+    100% { transform: scale(0.85); opacity: 0; }
+  }
+  .shotchip {
+    position: absolute; top: 14px; left: 14px;
+    background: rgba(0,0,0,0.55);
+    backdrop-filter: blur(6px);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .camerror {
+    position: absolute; inset: 0;
+    display: grid; place-items: center; align-content: center; gap: 14px;
+    text-align: center; padding: 24px;
+    color: var(--muted);
+    background: var(--surface);
+  }
+  .camerror p { margin: 0; max-width: 40ch; line-height: 1.45; }
+  .camerror button {
+    border: 0; background: var(--text); color: var(--bg);
+    padding: 10px 18px; border-radius: 999px; cursor: pointer; font-weight: 600;
+  }
+
+  .slots {
+    display: flex; flex-direction: column; gap: 10px;
+    height: 100%; justify-content: center;
+  }
+  .slot {
+    width: 108px; aspect-ratio: 3 / 2;
+    border-radius: 8px;
+    border: 1px dashed var(--line);
+    background: var(--surface) center / cover no-repeat;
+    position: relative;
+    transition: border-color .2s;
+  }
+  .slot.filled { border: 1px solid transparent; animation: drop .35s ease-out; }
+  .slot.next { border-color: var(--accent); }
+  .slot .n {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    color: var(--muted); font-size: 0.8rem;
+  }
+  .slot.filled .n { display: none; }
+  @keyframes drop { from { transform: translateY(-10px) scale(1.06); opacity: 0; } }
+
+  /* ---------- controls ---------- */
+  .controls {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+  }
+  .controls .left { justify-self: start; }
+  .controls .right { justify-self: end; color: var(--muted); font-size: 0.82rem; }
+  .shutter {
+    width: 84px; height: 84px;
+    border-radius: 50%;
+    border: 4px solid var(--text);
+    background: transparent;
+    padding: 5px;
+    cursor: pointer;
+  }
+  .shutter i {
+    display: block; width: 100%; height: 100%;
+    border-radius: 50%;
+    background: var(--accent);
+    transition: transform .12s, background .12s;
+  }
+  .shutter:hover i { background: #f25451; }
+  .shutter:active i { transform: scale(0.9); }
+  .shutter:disabled { opacity: 0.4; cursor: default; }
+  .shutter:disabled i { transform: scale(0.6); border-radius: 12px; }
+  kbd {
+    font-family: inherit; font-size: 0.75rem;
+    border: 1px solid var(--line); border-bottom-width: 2px;
+    border-radius: 5px; padding: 1px 6px; color: var(--text);
+  }
+
+  .flash {
+    position: fixed; inset: 0; background: #fff;
+    opacity: 0; pointer-events: none;
+  }
+  .flash.go { animation: flash .45s ease-out; }
+  @keyframes flash { 0% { opacity: 1; } 100% { opacity: 0; } }
+
+  /* ---------- review / print overlay ---------- */
+  .overlay {
+    position: fixed; inset: 0;
+    background: rgba(8,7,7,0.92);
+    backdrop-filter: blur(8px);
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 32px;
+    padding: 24px;
+  }
+  .overlay[hidden] { display: none; }
+  .paper-wrap {
+    grid-column: 2;
+    height: calc(100dvh - 48px);
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+    position: relative;
+  }
+  .paper {
+    background: var(--paper);
+    padding: 0;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+    max-height: 100%;
+    border-radius: 2px;
+  }
+  .paper canvas {
+    display: block;
+    height: auto;
+    max-height: calc(100dvh - 48px);
+    max-width: min(46vw, 420px);
+    image-rendering: pixelated;
+  }
+  .overlay.printing .paper { animation: feed var(--feed-seconds, 30s) linear forwards; }
+  @keyframes feed { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0 0 0 0); } }
+
+  .side { display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
+  .side.lefts { justify-self: end; align-items: flex-end; text-align: right; }
+  .side h2 { margin: 0; font-size: 1.6rem; font-weight: 650; letter-spacing: -0.01em; }
+  .side p { margin: 0; color: var(--muted); line-height: 1.45; max-width: 26ch; }
+  .bigbtn {
+    display: inline-flex; align-items: center; gap: 10px;
+    border: 0; border-radius: 999px;
+    padding: 14px 24px;
+    font-size: 1.05rem; font-weight: 600;
+    cursor: pointer;
+  }
+  .bigbtn.primary { background: var(--accent); color: #fff; }
+  .bigbtn.primary:hover { background: #f25451; }
+  .bigbtn.secondary { background: var(--surface-2); color: var(--text); }
+  .bigbtn.secondary:hover { background: #312d2a; }
+  .bigbtn:disabled { opacity: 0.4; cursor: default; }
+  .progress {
+    width: 220px; height: 6px; border-radius: 999px;
+    background: var(--surface-2); overflow: hidden;
+  }
+  .progress i { display: block; height: 100%; width: 0; background: var(--text); border-radius: 999px; }
+  .overlay.printing .progress i { animation: grow var(--feed-seconds, 30s) linear forwards; }
+  @keyframes grow { to { width: 100%; } }
+  .overlay.printed .paper, .overlay.printed .progress i { animation: none; clip-path: none; width: 100%; }
+  .err { color: var(--bad) !important; }
+
+  /* ---------- narrow / portrait ---------- */
+  @media (max-aspect-ratio: 1/1) {
+    .stage { flex-direction: column; }
+    .viewfinder { height: auto; width: 100%; }
+    .slots { flex-direction: row; height: auto; }
+    .slot { width: min(22vw, 108px); }
+    .controls .right { display: none; }
+    .overlay { grid-template-columns: 1fr; grid-template-rows: 1fr auto auto; gap: 18px; }
+    .paper-wrap { grid-column: 1; grid-row: 1; height: auto; min-height: 0; max-height: 62dvh; }
+    .paper canvas { max-height: 62dvh; max-width: 80vw; }
+    .side, .side.lefts { justify-self: center; align-items: center; text-align: center; }
+    .side.lefts { grid-row: 2; }
+    .side.rights { grid-row: 3; flex-direction: row; }
+  }
+  @media (max-width: 560px) {
+    .topbar { grid-template-columns: 1fr auto; }
+    .wordmark { display: none; }
+    .printer span:last-child { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .countdown span, .slot.filled { animation: none; }
+    .flash.go { animation-duration: .2s; }
+  }
+</style>
+</head>
+<body>
+
+<div class="booth">
+  <header class="topbar">
+    <div class="wordmark"><span class="bulb"></span><span id="title"></span></div>
+    <div class="modes" role="group" aria-label="Mode">
+      <button id="mode-single" aria-pressed="true">Single</button>
+      <button id="mode-strip" aria-pressed="false">Strip of 4</button>
+    </div>
+    <div class="topright">
+      <div class="printer" title="Printer status"><span class="dot" id="pdot"></span><span id="plabel">Checking…</span></div>
+      <button class="ghost" id="fullscreen" title="Fullscreen" aria-label="Fullscreen">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="stage">
+    <div class="viewfinder mirrored" id="vf">
+      <video id="video" autoplay playsinline muted></video>
+      <div class="shotchip" id="shotchip" hidden></div>
+      <div class="countdown" id="countdown"></div>
+      <div class="camerror" id="camerror" hidden>
+        <p id="camerrtext">Starting camera…</p>
+        <button id="camretry" hidden>Enable camera</button>
+      </div>
+    </div>
+    <div class="slots" id="slots" hidden></div>
+  </main>
+
+  <footer class="controls">
+    <div class="left">
+      <button class="ghost" id="switchcam" title="Switch camera" aria-label="Switch camera">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-3l-2-3H9L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/><path d="M9 13.5a3 3 0 0 1 5.2-2M15 12.5a3 3 0 0 1-5.2 2"/><path d="M14.5 9.5v2h-2M9.5 16.5v-2h2"/></svg>
+      </button>
+    </div>
+    <button class="shutter" id="shutter" title="Take photo" aria-label="Take photo"><i></i></button>
+    <div class="right">or press <kbd>Space</kbd></div>
+  </footer>
+</div>
+
+<div class="flash" id="flash"></div>
+
+<div class="overlay" id="overlay" hidden>
+  <div class="side lefts">
+    <h2 id="rv-title">Looking good!</h2>
+    <p id="rv-text">This is how it'll come out of the printer.</p>
+    <div class="progress" id="progress" hidden><i></i></div>
+  </div>
+  <div class="paper-wrap"><div class="paper"><canvas id="preview"></canvas></div></div>
+  <div class="side rights" id="rv-actions">
+    <button class="bigbtn primary" id="print">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v7H6z"/></svg>
+      Print
+    </button>
+    <button class="bigbtn secondary" id="retake">Retake</button>
+  </div>
+</div>
+
+<script>
+const CAPTION = {{CAPTION}};
+const SHOTS = { single: 1, strip: 4 };
+const COUNTDOWN_SECONDS = 3;
+const PRINT_WIDTH = 384;           // printer dots
+const ROW_SECONDS = 0.045;         // ~ROW_DELAY in m02_print.py plus transfer
+const REVIEW_TIMEOUT_MS = 90000;   // nobody decided → discard, back to live view
+
+// Composed strip geometry (2× the printer width, the server downsamples).
+const STRIP_W = 768, PAD = 24, FRAME_W = STRIP_W - 2 * PAD, FRAME_H = FRAME_W * 2 / 3, BOTTOM_PAD = 8;
+
+const $ = (id) => document.getElementById(id);
+const video = $('video'), vf = $('vf');
+const shutter = $('shutter'), switchcam = $('switchcam');
+const overlay = $('overlay'), preview = $('preview');
+
+$('title').textContent = CAPTION || 'Photobooth';
+if (CAPTION) document.title = CAPTION;
+
+let mode = 'single';
+let state = 'live';          // live | countdown | review | printing | done
+let facing = 'user';
+let stream = null;
+let frames = [];             // canvases of captured frames
+let stripBlob = null;
+let reviewTimer = null;
+
+// ---------- sound ----------
+let audio = null;
+function ac() {
+  if (!audio) { try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+  if (audio && audio.state === 'suspended') audio.resume();
+  return audio;
+}
+function beep(freq, dur = 0.12, vol = 0.15) {
+  const a = ac(); if (!a) return;
+  const o = a.createOscillator(), g = a.createGain();
+  o.frequency.value = freq; o.type = 'sine';
+  g.gain.setValueAtTime(vol, a.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + dur);
+  o.connect(g).connect(a.destination); o.start(); o.stop(a.currentTime + dur);
+}
+function shutterSound() {
+  const a = ac(); if (!a) return;
+  const len = Math.floor(a.sampleRate * 0.12);
+  const buf = a.createBuffer(1, len, a.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+  const src = a.createBufferSource(), g = a.createGain();
+  src.buffer = buf; g.gain.value = 0.5;
+  src.connect(g).connect(a.destination); src.start();
+}
+
+// ---------- camera ----------
+function camError(msg, retry) {
+  $('camerror').hidden = false;
+  $('camerrtext').textContent = msg;
+  $('camretry').hidden = !retry;
+}
+async function startCamera() {
+  if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    camError('The camera needs a secure connection. Open this page via https:// (or on localhost).', false);
+    return;
+  }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false,
+    });
+    video.srcObject = stream;
+    const settings = stream.getVideoTracks()[0].getSettings();
+    // Mirror the selfie view like a mirror — unless the camera says it's the back one.
+    vf.classList.toggle('mirrored', settings.facingMode !== 'environment');
+    $('camerror').hidden = true;
+  } catch (e) {
+    camError(e.name === 'NotAllowedError'
+      ? 'Camera access was blocked. Allow it in your browser and try again.'
+      : 'Could not start the camera: ' + e.message, true);
+  }
+}
+$('camretry').addEventListener('click', startCamera);
+switchcam.addEventListener('click', () => { facing = facing === 'user' ? 'environment' : 'user'; startCamera(); });
+
+// ---------- modes & slots ----------
+function setMode(m) {
+  if (state !== 'live') return;
+  mode = m;
+  $('mode-single').setAttribute('aria-pressed', m === 'single');
+  $('mode-strip').setAttribute('aria-pressed', m === 'strip');
+  renderSlots();
+}
+$('mode-single').addEventListener('click', () => setMode('single'));
+$('mode-strip').addEventListener('click', () => setMode('strip'));
+
+function renderSlots() {
+  const slots = $('slots');
+  slots.hidden = mode !== 'strip';
+  slots.innerHTML = '';
+  for (let i = 0; i < SHOTS.strip; i++) {
+    const s = document.createElement('div');
+    s.className = 'slot';
+    if (frames[i]) { s.classList.add('filled'); s.style.backgroundImage = `url(${frames[i].toDataURL('image/jpeg', 0.7)})`; }
+    else if (state === 'countdown' && i === frames.length) s.classList.add('next');
+    s.innerHTML = `<span class="n">${i + 1}</span>`;
+    slots.appendChild(s);
+  }
+}
+
+// ---------- capture flow ----------
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function setLiveControls(enabled) {
+  shutter.disabled = !enabled;
+  switchcam.disabled = !enabled;
+  for (const b of document.querySelectorAll('.modes button')) b.disabled = !enabled;
+}
+
+async function countdown() {
+  const el = $('countdown');
+  for (let n = COUNTDOWN_SECONDS; n >= 1; n--) {
+    el.innerHTML = `<span>${n}</span>`;
+    beep(n === 1 ? 880 : 660);
+    await sleep(1000);
+  }
+  el.innerHTML = '';
+}
+
+function grabFrame() {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  // Centre-crop the video to 3:2, matching the viewfinder.
+  let sw = vw, sh = vw * 2 / 3;
+  if (sh > vh) { sh = vh; sw = vh * 3 / 2; }
+  const sx = (vw - sw) / 2, sy = (vh - sh) / 2;
+  const c = document.createElement('canvas');
+  c.width = FRAME_W; c.height = FRAME_H;
+  const ctx = c.getContext('2d');
+  if (vf.classList.contains('mirrored')) { ctx.translate(FRAME_W, 0); ctx.scale(-1, 1); }
+  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, FRAME_W, FRAME_H);
+  return c;
+}
+
+function flash() {
+  const f = $('flash');
+  f.classList.remove('go'); void f.offsetWidth; f.classList.add('go');
+}
+
+async function takePhotos() {
+  if (state !== 'live' || !stream || !video.videoWidth) return;
+  ac();
+  state = 'countdown';
+  setLiveControls(false);
+  frames = [];
+  const total = SHOTS[mode];
+  const chip = $('shotchip');
+  for (let i = 0; i < total; i++) {
+    if (total > 1) { chip.hidden = false; chip.textContent = `Photo ${i + 1} of ${total}`; }
+    renderSlots();
+    await countdown();
+    frames.push(grabFrame());
+    shutterSound();
+    flash();
+    renderSlots();
+    if (i < total - 1) await sleep(700);
+  }
+  chip.hidden = true;
+  await sleep(400);
+  showReview();
+}
+shutter.addEventListener('click', takePhotos);
+
+// ---------- compose + thermal preview ----------
+function composeStrip() {
+  const n = frames.length;
+  const c = document.createElement('canvas');
+  c.width = STRIP_W;
+  c.height = PAD + n * FRAME_H + (n - 1) * PAD + BOTTOM_PAD;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+  frames.forEach((f, i) => ctx.drawImage(f, PAD, PAD + i * (FRAME_H + PAD)));
+  return c;
+}
+
+// Mirrors image_to_rows(keep_white=True) in m02_print.py: grayscale, contrast
+// 1.7 around the mean, brightness 0.7 (pure-white borders stay white), then
+// Floyd–Steinberg to 1 bit.
+function ditherInto(ctx, src, w, h, y0) {
+  const tmp = document.createElement('canvas');
+  tmp.width = w; tmp.height = h;
+  const t = tmp.getContext('2d');
+  t.imageSmoothingQuality = 'high';
+  t.drawImage(src, 0, 0, w, h);
+  const img = t.getImageData(0, 0, w, h), d = img.data;
+  const g = new Float32Array(w * h);
+  const white = new Uint8Array(w * h);
+  let sum = 0;
+  for (let i = 0; i < w * h; i++) {
+    const v = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+    g[i] = v; sum += v; white[i] = v >= 250;
+  }
+  const mean = Math.round(sum / (w * h));
+  for (let i = 0; i < g.length; i++) {
+    let v = Math.max(0, Math.min(255, mean + (g[i] - mean) * 1.7));
+    g[i] = white[i] ? 255 : Math.max(0, Math.min(255, v * 0.7));
+  }
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x, old = g[i], nw = old < 128 ? 0 : 255, err = old - nw;
+    g[i] = nw;
+    if (x + 1 < w) g[i + 1] += err * 7 / 16;
+    if (y + 1 < h) {
+      if (x > 0) g[i + w - 1] += err * 3 / 16;
+      g[i + w] += err * 5 / 16;
+      if (x + 1 < w) g[i + w + 1] += err * 1 / 16;
+    }
+  }
+  for (let i = 0; i < g.length; i++) { d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = g[i]; d[i * 4 + 3] = 255; }
+  ctx.putImageData(img, 0, y0);
+}
+
+function captionLines() {
+  const now = new Date(), p = (n) => String(n).padStart(2, '0');
+  const stamp = `${p(now.getDate())}.${p(now.getMonth() + 1)}.${now.getFullYear()}  ${p(now.getHours())}:${p(now.getMinutes())}`;
+  return CAPTION ? [CAPTION, stamp] : [stamp];
+}
+
+function renderPreview(strip) {
+  const photoH = Math.round(strip.height * PRINT_WIDTH / strip.width);
+  const lines = captionLines();
+  const lineH = 28, capH = lines.length * lineH + 16;
+  preview.width = PRINT_WIDTH;
+  preview.height = 4 + photoH + capH;
+  const ctx = preview.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, preview.width, preview.height);
+  ditherInto(ctx, strip, PRINT_WIDTH, photoH, 4);
+  ctx.fillStyle = '#000';
+  ctx.font = '22px "DejaVu Sans", Verdana, sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  lines.forEach((l, i) => ctx.fillText(l, PRINT_WIDTH / 2, 4 + photoH + 8 + i * lineH));
+  return preview.height;
+}
+
+// ---------- review / print ----------
+function setReviewText(title, text, isErr = false) {
+  $('rv-title').textContent = title;
+  $('rv-text').textContent = text;
+  $('rv-text').classList.toggle('err', isErr);
+}
+
+function showReview() {
+  state = 'review';
+  const strip = composeStrip();
+  const rows = renderPreview(strip);
+  overlay.style.setProperty('--feed-seconds', (rows * ROW_SECONDS + 3).toFixed(1) + 's');
+  strip.toBlob((b) => { stripBlob = b; }, 'image/jpeg', 0.92);
+  overlay.classList.remove('printing');
+  $('progress').hidden = true;
+  $('rv-actions').hidden = false;
+  $('print').disabled = false;
+  $('retake').disabled = false;
+  setReviewText(frames.length > 1 ? 'Nice strip!' : 'Looking good!', "This is how it'll come out of the printer.");
+  overlay.hidden = false;
+  clearTimeout(reviewTimer);
+  reviewTimer = setTimeout(backToLive, REVIEW_TIMEOUT_MS);
+}
+
+function backToLive() {
+  clearTimeout(reviewTimer);
+  overlay.hidden = true;
+  overlay.classList.remove('printing', 'printed');
+  frames = [];
+  stripBlob = null;
+  state = 'live';
+  setLiveControls(true);
+  renderSlots();
+}
+
+async function doPrint() {
+  if (state !== 'review' || !stripBlob) return;
+  clearTimeout(reviewTimer);
+  state = 'printing';
+  $('rv-actions').hidden = true;
+  $('progress').hidden = false;
+  overlay.classList.remove('printing'); void overlay.offsetWidth; overlay.classList.add('printing');
+  setReviewText('Printing…', 'Your photo is on its way. Give it a moment.');
+  try {
+    const res = await fetch('print', { method: 'POST', headers: { 'Content-Type': 'image/jpeg' }, body: stripBlob });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+    state = 'done';
+    overlay.classList.add('printed');
+    beep(990, 0.1); setTimeout(() => beep(1320, 0.16), 120);
+    setReviewText('Grab your print!', 'Tear it off at the printer.');
+    setTimeout(backToLive, 4000);
+  } catch (e) {
+    state = 'review';
+    overlay.classList.remove('printing');
+    $('progress').hidden = true;
+    $('rv-actions').hidden = false;
+    setReviewText('Print failed', String(e.message || e) + ' — is the printer on?', true);
+    reviewTimer = setTimeout(backToLive, REVIEW_TIMEOUT_MS);
+  }
+  checkPrinter();
+}
+$('print').addEventListener('click', doPrint);
+$('retake').addEventListener('click', () => { if (state === 'review') backToLive(); });
+
+// ---------- keyboard (also works with presentation clickers) ----------
+document.addEventListener('keydown', (e) => {
+  const go = [' ', 'Enter', 'PageDown', 'ArrowRight'].includes(e.key);
+  const back = ['Escape', 'Backspace', 'PageUp', 'ArrowLeft'].includes(e.key);
+  if (!go && !back) return;
+  e.preventDefault();
+  if (state === 'live' && go) takePhotos();
+  else if (state === 'review' && go) doPrint();
+  else if (state === 'review' && back) backToLive();
+});
+
+// ---------- printer status ----------
+async function checkPrinter() {
+  let ok = false;
+  try { ok = (await (await fetch('printer-status')).json()).connected; } catch (e) {}
+  $('pdot').style.background = ok ? 'var(--ok)' : 'var(--bad)';
+  $('plabel').textContent = ok ? 'Printer ready' : 'Printer offline';
+}
+setInterval(() => { if (state !== 'printing') checkPrinter(); }, 20000);
+
+// ---------- fullscreen + keep screen awake ----------
+$('fullscreen').addEventListener('click', () => {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen?.().catch(() => {});
+});
+let wakeLock = null;
+async function keepAwake() {
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch (e) {}
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') keepAwake(); });
+
+renderSlots();
+checkPrinter();
+startCamera();
+keepAwake();
+</script>
+</body>
+</html>

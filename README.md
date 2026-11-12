@@ -7,6 +7,7 @@ process** with only the standard library and Pillow — no Flask, no venv.
 |---|---|---|
 | `https://<pi>:8765/` | landing page | `server.py` |
 | `https://<pi>:8765/printer/` | M02 thermal printer: text, images, webcam, "I'm Feeling Lucky" | `apps/printer/` |
+| `https://<pi>:8765/photobooth/` | photo booth: countdown, flash, single shot or strip of 4, printed on the M02 | `apps/photobooth/` |
 | `https://<pi>:8765/rooms/` | room planner | `apps/rooms/` |
 | `https://<pi>:8765/transit/` | BVG departures (Erkstraße, U Rathaus Neukölln) | `apps/transit/` |
 | `http://<pi>:5001/` | the same departures, for the e-reader | `apps/transit/` |
@@ -45,7 +46,8 @@ python3 server.py --http --port 8080 --transit-port 0   # local testing: plain H
 
 Room layouts (`rooms.json`) and the TLS cert live in `--data-dir`, by default
 `~/.local/share/dumb-home-project/` — outside the repo, so a `git pull` never
-touches them. Printer options: `--addr`, `--font-size`, `--density`.
+touches them. Printer options: `--addr`, `--font-size`, `--density`; the photo
+booth's caption: `--booth-caption` (see [apps/photobooth](apps/photobooth/README.md)).
 
 ## On the Raspberry Pi
 

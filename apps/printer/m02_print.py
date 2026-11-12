@@ -79,22 +79,31 @@ def pack_row(bits: list[int]) -> bytes:
     return bytes(out)
 
 
-def image_to_rows(img: Image.Image, *, top_padding: int = 4, dither: bool = True) -> list[bytes]:
+def image_to_rows(
+    img: Image.Image, *, top_padding: int = 4, dither: bool = True, keep_white: bool = False
+) -> list[bytes]:
     """Convert a PIL image to packed 1-bit rows (resized to width=384), with blank top padding.
 
     Dithering suits photos but turns thin text strokes into sparse, faint dot
     patterns that don't fire reliably at low thermal density — use a plain
     threshold (dither=False) for text.
+
+    keep_white: leave pure-white areas (e.g. borders around photos) blank
+    instead of letting the darkening step below turn them into a gray dot
+    pattern.
     """
     if img.width != PRINT_WIDTH:
         new_height = max(1, round(img.height * PRINT_WIDTH / img.width))
         img = img.resize((PRINT_WIDTH, new_height), Image.LANCZOS)
     img = img.convert("L")
     if dither:
+        white_mask = img.point(lambda v: 255 if v >= 250 else 0) if keep_white else None
         # Thermal dithering tends to print lighter than the source image —
         # darken midtones so grays come out as recognizably gray, not faint.
         img = ImageEnhance.Contrast(img).enhance(1.7)
         img = ImageEnhance.Brightness(img).enhance(0.7)
+        if white_mask is not None:
+            img.paste(255, mask=white_mask)
     bw = img.convert("1", dither=Image.FLOYDSTEINBERG if dither else Image.NONE)
 
     rows: list[bytes] = []

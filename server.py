@@ -3,6 +3,7 @@
 
   https://<pi>:8765/           landing page
   https://<pi>:8765/printer/   M02 thermal printer
+  https://<pi>:8765/photobooth/  photo booth, printing on the same printer
   https://<pi>:8765/rooms/     room planner
   https://<pi>:8765/transit/   BVG departures
   http://<pi>:5001/            BVG departures for the e-reader (its app has
@@ -23,6 +24,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from apps.photobooth import routes as photobooth
 from apps.printer import routes as printer
 from apps.printer.m02_print import ADDR
 from apps.rooms import routes as rooms
@@ -32,6 +34,7 @@ from web import ThreadingHTTPSServer, ensure_self_signed_cert, make_handler
 APPS = {
     # prefix: (title, description, routes)
     "/printer": ("Printer", "Print text, images and webcam shots on the thermal printer", printer.ROUTES),
+    "/photobooth": ("Photo booth", "Strike a pose — single shots or a strip of four, printed on the spot", photobooth.ROUTES),
     "/rooms": ("Room planner", "Lay out furniture in a room", rooms.ROUTES),
     "/transit": ("Departures", "Next trains and buses from Erkstraße and Rathaus Neukölln", transit.ROUTES),
 }
@@ -103,10 +106,13 @@ def main() -> None:
     parser.add_argument("--addr", default=ADDR, help="Printer Bluetooth MAC address")
     parser.add_argument("--font-size", type=int, default=32)
     parser.add_argument("--density", type=int, default=4, choices=(1, 2, 3, 4))
+    parser.add_argument("--booth-caption", default=photobooth.Config.caption,
+                        help="Text printed under each photo booth print, above the date ('' for the date only)")
     args = parser.parse_args()
 
     args.data_dir.mkdir(parents=True, exist_ok=True)
     printer.configure(addr=args.addr, font_size=args.font_size, density=args.density)
+    photobooth.configure(caption=args.booth_caption)
     rooms.configure(data_file=args.data_dir / "rooms.json")
 
     handler = make_handler(build_routes())
